@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { BootstrapTenantInputSchema } from "@agenda-profissional/shared";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { parseAccessPath } from "@/lib/access-path";
 
 export default function OnboardingPage() {
   const router = useRouter();
@@ -16,9 +17,15 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
-    supabase.auth.getSession().then(({ data }: { data: { session: unknown } }) => {
-      if (!data.session) {
+    supabase.auth.getUser().then(({ data }) => {
+      if (!data.user) {
         router.push("/login");
+        return;
+      }
+
+      const path = parseAccessPath(data.user.user_metadata?.access_path);
+      if (path === "client") {
+        router.push("/client-area");
       }
     });
   }, [router]);

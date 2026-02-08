@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:mobile/theme/app_theme.dart';
 
 import '../models/appointment.dart';
@@ -27,15 +27,15 @@ class _AgendaScreenState extends State<AgendaScreen> {
     switch (status.toLowerCase()) {
       case 'confirmed':
         return (
-          background: AppColors.secondary.withOpacity(0.14),
-          border: AppColors.secondary.withOpacity(0.4),
+          background: AppColors.secondary.withValues(alpha: 0.14),
+          border: AppColors.secondary.withValues(alpha: 0.4),
           text: const Color(0xFF0F666A),
           label: 'Confirmado',
         );
       case 'cancelled':
         return (
-          background: AppColors.danger.withOpacity(0.12),
-          border: AppColors.danger.withOpacity(0.35),
+          background: AppColors.danger.withValues(alpha: 0.12),
+          border: AppColors.danger.withValues(alpha: 0.35),
           text: const Color(0xFF8A2E2A),
           label: 'Cancelado',
         );
@@ -51,7 +51,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
           background: const Color(0xFFF0F2F5),
           border: const Color(0xFFD8DEE5),
           text: const Color(0xFF4B5766),
-          label: 'Disponível',
+          label: 'DisponÃ­vel',
         );
       default:
         return (
@@ -109,7 +109,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
               ? Center(
                   child: Text(
                     _error!,
-                    style: TextStyle(color: AppColors.danger),
+                    style: const TextStyle(color: AppColors.danger),
                   ),
                 )
               : ListView.separated(
@@ -149,3 +149,4 @@ class _AgendaScreenState extends State<AgendaScreen> {
     );
   }
 }
+

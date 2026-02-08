@@ -215,9 +215,9 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: AppColors.secondary.withOpacity(0.1),
+                        color: AppColors.secondary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                        border: Border.all(color: AppColors.secondary.withOpacity(0.35)),
+                        border: Border.all(color: AppColors.secondary.withValues(alpha: 0.35)),
                       ),
                       child: Text(_status!, style: const TextStyle(color: Color(0xFF0F4D50))),
                     ),
@@ -227,9 +227,9 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: AppColors.danger.withOpacity(0.12),
+                        color: AppColors.danger.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                        border: Border.all(color: AppColors.danger.withOpacity(0.35)),
+                        border: Border.all(color: AppColors.danger.withValues(alpha: 0.35)),
                       ),
                       child: Text(_error!, style: const TextStyle(color: Color(0xFF702621))),
                     ),
@@ -243,3 +243,4 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
     );
   }
 }
+

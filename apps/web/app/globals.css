@@ -234,6 +234,12 @@ button.danger {
   font-weight: 600;
 }
 
+.nav-logo {
+  border-radius: 8px;
+  border: 1px solid rgb(255 255 255 / 30%);
+  background: #fff;
+}
+
 .nav-links {
   display: flex;
   align-items: center;
@@ -364,4 +370,3 @@ input[type="checkbox"] {
   margin: 0;
   accent-color: var(--ap-color-secondary);
 }
-

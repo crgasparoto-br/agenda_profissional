@@ -69,6 +69,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       return;
     }
 
+    if (_authService.resolveAccessPath(user) == AccessPath.client) {
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, '/client-area');
+      return;
+    }
+
     final exists = await _onboardingService.profileExists(user.id);
 
     if (!mounted) return;
@@ -146,9 +152,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: AppColors.danger.withOpacity(0.12),
+                        color: AppColors.danger.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                        border: Border.all(color: AppColors.danger.withOpacity(0.35)),
+                        border: Border.all(color: AppColors.danger.withValues(alpha: 0.35)),
                       ),
                       child: Text(_error!, style: const TextStyle(color: Color(0xFF702621))),
                     ),
@@ -162,3 +168,4 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 }
+

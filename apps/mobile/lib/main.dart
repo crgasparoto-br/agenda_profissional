@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:mobile/screens/agenda_screen.dart';
+import 'package:mobile/screens/client_area_screen.dart';
 import 'package:mobile/screens/create_appointment_screen.dart';
 import 'package:mobile/screens/login_screen.dart';
 import 'package:mobile/screens/onboarding_screen.dart';
+import 'package:mobile/services/auth_service.dart';
 import 'package:mobile/theme/app_theme.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -31,6 +33,7 @@ class AgendaProfissionalApp extends StatelessWidget {
         '/login': (_) => const LoginScreen(),
         '/onboarding': (_) => const OnboardingScreen(),
         '/agenda': (_) => const AgendaScreen(),
+        '/client-area': (_) => const ClientAreaScreen(),
         '/appointments/new': (_) => const CreateAppointmentScreen(),
       },
     );
@@ -43,9 +46,15 @@ class SessionGate extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final session = Supabase.instance.client.auth.currentSession;
+    final authService = AuthService();
 
     if (session == null) {
       return const LoginScreen();
+    }
+
+    final path = authService.resolveAccessPath(authService.currentUser);
+    if (path == AccessPath.client) {
+      return const ClientAreaScreen();
     }
 
     return const OnboardingScreen();

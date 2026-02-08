@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 class AppColors {
   static const Color primary = Color(0xFF1F3A5F);
@@ -112,10 +112,11 @@ class AppTheme {
         ),
         trackColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.selected)
-              ? AppColors.secondary.withOpacity(0.35)
-              : AppColors.muted.withOpacity(0.25),
+              ? AppColors.secondary.withValues(alpha: 0.35)
+              : AppColors.muted.withValues(alpha: 0.25),
         ),
       ),
     );
   }
 }
+
