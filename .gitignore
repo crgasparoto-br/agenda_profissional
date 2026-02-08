@@ -1,0 +1,10 @@
+﻿node_modules
+.next
+out
+.dart_tool
+build
+coverage
+.env
+.env.local
+supabase/.temp
+

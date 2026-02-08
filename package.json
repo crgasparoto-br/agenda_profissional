@@ -1,0 +1,24 @@
+{
+  "name": "agenda-profissional",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "npm --workspace apps/web run dev",
+    "dev:supabase": "supabase start",
+    "dev:supabase:stop": "supabase stop",
+    "supabase:migrate": "supabase db push",
+    "supabase:functions:deploy": "supabase functions deploy bootstrap-tenant && supabase functions deploy create-appointment",
+    "lint:web": "npm --workspace apps/web run lint",
+    "typecheck": "npm --workspace packages/shared run typecheck && npm --workspace apps/web run typecheck"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "supabase": "^2.76.4"
+  }
+}

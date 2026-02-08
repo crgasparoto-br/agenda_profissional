@@ -1,0 +1,40 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^npx supabase start --ignore-health-check$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx supabase db push --local --yes$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx supabase status -o json$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^node -p \"require\\('\\./apps/web/package\\.json'\\)\\.name\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^npx supabase functions serve --env-file supabase/functions/\\.env --no-verify-jwt$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "Set-Location": true,
+        "/^& \\{ Set-Location \"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\apps\\\\mobile\"; flutter run -d windows --dart-define=SUPABASE_URL=http://127\\.0\\.0\\.1:56021 --dart-define=SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9\\.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9\\.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0 \\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "npm install": true,
+        "npm run dev:web": true,
+        "/^\\$path=\"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\apps\\\\web\\\\package\\.json\"; \\$text = Get-Content -Raw \\$path; \\[System\\.IO\\.File\\]::WriteAllText\\(\\$path, \\$text, \\(New-Object System\\.Text\\.UTF8Encoding\\(\\$false\\)\\)\\)$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "npx supabase": true,
+        "/^New-Item -ItemType Directory -Path \"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\apps\\\\web\\\\public\\\\brand\" -Force \\| Out-Null; Copy-Item \"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\logo\\\\professional_01\\.png\" \"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\apps\\\\web\\\\public\\\\brand\\\\agenda-logo\\.png\" -Force; New-Item -ItemType Directory -Path \"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\apps\\\\mobile\\\\assets\\\\brand\" -Force \\| Out-Null; Copy-Item \"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\logo\\\\professional_01\\.png\" \"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\apps\\\\mobile\\\\assets\\\\brand\\\\agenda-logo\\.png\" -Force$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}
