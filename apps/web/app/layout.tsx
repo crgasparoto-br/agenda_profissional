@@ -23,10 +23,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="pt-BR" suppressHydrationWarning>
       <body className={inter.variable} suppressHydrationWarning>
-        <Navbar />
-        <main>{children}</main>
+        <header className="top-header">
+          <div className="top-header-inner">Agenda Profissional</div>
+        </header>
+        <div className="app-shell">
+          <Navbar />
+          <main>{children}</main>
+        </div>
       </body>
     </html>
   );
 }
-

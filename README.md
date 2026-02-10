@@ -1,6 +1,6 @@
 ﻿# Agenda Profissional Monorepo
 
-Monorepo MVP para agendamento multi-tenant (profissional individual ou clínica com múltiplos profissionais).
+Monorepo MVP para agendamento multi-tenant (profissional individual ou equipe/empresa com múltiplos profissionais).
 
 ## Stack
 
@@ -62,6 +62,24 @@ flutter run \
 npm run supabase:functions:deploy
 ```
 
+## Integração WhatsApp + IA
+
+1. Configure variáveis em `supabase/functions/.env` (veja `supabase/functions/.env.example`):
+- `WHATSAPP_VERIFY_TOKEN`
+- `WHATSAPP_ACCESS_TOKEN`
+- `WHATSAPP_PHONE_NUMBER_ID`
+- `WHATSAPP_DEFAULT_TENANT_ID` (ou `WHATSAPP_TENANT_MAP_JSON` para múltiplas organizações)
+- `OPENAI_API_KEY`
+
+2. Publique a função:
+```bash
+supabase functions deploy whatsapp-webhook
+```
+
+3. Configure webhook no Meta WhatsApp:
+- Verificação (`GET`): `.../functions/v1/whatsapp-webhook`
+- Eventos (`POST`): `.../functions/v1/whatsapp-webhook`
+
 ## Scripts do monorepo
 
 - `npm run dev:web`
@@ -75,7 +93,7 @@ npm run supabase:functions:deploy
 ## Fluxo MVP
 
 1. Usuário faz login.
-2. Onboarding chama `bootstrap-tenant` para criar `tenant + profile(owner) + professional + schedule`.
+2. Onboarding chama `bootstrap-tenant` para criar `organizacao + profile(owner) + professional + schedule`.
 3. Operação diária no dashboard/clientes.
 4. Novo agendamento chama `create-appointment` com profissional específico ou `any_available=true`.
 
@@ -83,7 +101,7 @@ npm run supabase:functions:deploy
 
 - RLS habilitado nas tabelas de domínio.
 - Escopo por `tenant_id` via helper `auth_tenant_id()`.
-- Políticas por role (`owner/admin/receptionist` com CRUD do tenant).
+- Políticas por role (`owner/admin/receptionist` com CRUD da organizacao).
 - `staff` com leitura de agenda por padrão (update restrito opcional comentado em SQL).
 - Nunca há acesso cruzado entre tenants.
 

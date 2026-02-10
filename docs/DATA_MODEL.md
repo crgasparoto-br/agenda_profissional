@@ -2,7 +2,7 @@
 
 ## Entidades principais
 
-- `tenants`: organização (individual ou clínica)
+- `tenants`: organização (individual ou equipe/empresa)
 - `profiles`: usuário autenticado (mapeado a `auth.users`)
 - `professionals`: profissionais de atendimento (com ou sem `user_id`)
 - `specialties`: especialidades do tenant

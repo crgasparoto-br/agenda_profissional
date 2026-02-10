@@ -2,23 +2,23 @@ project_id = "agenda-profissional"
 
 [api]
 enabled = true
-port = 56021
+port = 54321
 schemas = ["public", "storage", "graphql_public"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
 [db]
-port = 56022
-shadow_port = 56020
+port = 54322
+shadow_port = 54320
 major_version = 15
 
 [studio]
 enabled = true
-port = 56023
+port = 54323
 
 [inbucket]
 enabled = true
-port = 56024
+port = 54324
 
 [auth]
 enabled = true
@@ -30,13 +30,16 @@ enable_signup = true
 [edge_runtime]
 enabled = true
 policy = "per_worker"
-inspector_port = 56083
+inspector_port = 54383
 
 [analytics]
 enabled = false
 
 [functions.bootstrap-tenant]
-verify_jwt = true
+verify_jwt = false
 
 [functions.create-appointment]
-verify_jwt = true
+verify_jwt = false
+
+[functions.whatsapp-webhook]
+verify_jwt = false

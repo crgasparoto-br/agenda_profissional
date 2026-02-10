@@ -20,6 +20,7 @@ O repositório segue arquitetura de monorepo com separação por apps, pacote co
 - Edge Functions:
   - `bootstrap-tenant`: inicialização idempotente do tenant.
   - `create-appointment`: validação e seleção de profissional com opção `any_available`.
+  - `whatsapp-webhook`: recebe mensagens do WhatsApp, persiste contexto e responde via IA.
 
 3. `Data Layer`
 - PostgreSQL com schema multi-tenant.
@@ -50,4 +51,14 @@ O repositório segue arquitetura de monorepo com separação por apps, pacote co
 5. Verifica conflito por janela de horário e escolhe o primeiro livre.
 6. Insere `appointments` com `status=scheduled`.
 7. Constraint no banco impede race condition de overlap por profissional.
+
+## Fluxo WhatsApp + IA
+
+1. Meta WhatsApp chama `whatsapp-webhook` (GET de verificação e POST de eventos).
+2. A função valida assinatura (quando `WHATSAPP_APP_SECRET` está configurado).
+3. Resolve organização via `WHATSAPP_TENANT_MAP_JSON` ou `WHATSAPP_DEFAULT_TENANT_ID`.
+4. Faz upsert de cliente por telefone WhatsApp.
+5. Persiste histórico em `whatsapp_conversations` e `whatsapp_messages`.
+6. Envia contexto recente para a API da OpenAI e gera resposta natural.
+7. Publica resposta no WhatsApp Cloud API.
 

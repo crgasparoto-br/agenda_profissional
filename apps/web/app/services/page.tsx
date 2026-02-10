@@ -29,6 +29,13 @@ export default function ServicesPage() {
   const [durationMin, setDurationMin] = useState("30");
   const [price, setPrice] = useState("");
   const [serviceSpecialtyId, setServiceSpecialtyId] = useState("");
+  const [editingSpecialtyId, setEditingSpecialtyId] = useState<string | null>(null);
+  const [editSpecialtyName, setEditSpecialtyName] = useState("");
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [editServiceName, setEditServiceName] = useState("");
+  const [editDurationMin, setEditDurationMin] = useState("30");
+  const [editPrice, setEditPrice] = useState("");
+  const [editServiceSpecialtyId, setEditServiceSpecialtyId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -60,7 +67,7 @@ export default function ServicesPage() {
     async function bootstrap() {
       const { data, error: tenantError } = await supabase.rpc("auth_tenant_id");
       if (tenantError || !data) {
-        setError("NÃ£o foi possÃ­vel resolver o tenant atual.");
+        setError("Nao foi possivel resolver a organizacao atual.");
         return;
       }
 
@@ -77,6 +84,11 @@ export default function ServicesPage() {
     const parsed = Number.parseFloat(normalized);
     if (Number.isNaN(parsed) || parsed < 0) return null;
     return Math.round(parsed * 100);
+  }
+
+  function formatPriceFromCents(value: number | null) {
+    if (value === null) return "";
+    return (value / 100).toFixed(2);
   }
 
   async function handleCreateSpecialty(event: FormEvent) {
@@ -111,13 +123,13 @@ export default function ServicesPage() {
 
     const parsedDuration = Number.parseInt(durationMin, 10);
     if (Number.isNaN(parsedDuration) || parsedDuration <= 0) {
-      setError("DuraÃ§Ã£o invÃ¡lida.");
+      setError("Duração inválida.");
       return;
     }
 
     const parsedPrice = parsePriceToCents(price);
     if (price.trim() && parsedPrice === null) {
-      setError("PreÃ§o invÃ¡lido.");
+      setError("Preço inválido.");
       return;
     }
 
@@ -139,7 +151,7 @@ export default function ServicesPage() {
     setDurationMin("30");
     setPrice("");
     setServiceSpecialtyId("");
-    setStatus("ServiÃ§o cadastrado.");
+    setStatus("Serviço cadastrado.");
     await load();
   }
 
@@ -157,7 +169,38 @@ export default function ServicesPage() {
       return;
     }
 
-    setStatus("Status do serviÃ§o atualizado.");
+    setStatus("Status do serviço atualizado.");
+    await load();
+  }
+
+  function startEditingSpecialty(item: SpecialtyRow) {
+    setEditingSpecialtyId(item.id);
+    setEditSpecialtyName(item.name);
+    setError(null);
+    setStatus(null);
+  }
+
+  function cancelEditingSpecialty() {
+    setEditingSpecialtyId(null);
+    setEditSpecialtyName("");
+  }
+
+  async function saveEditingSpecialty(item: SpecialtyRow) {
+    setError(null);
+    setStatus(null);
+    const supabase = getSupabaseBrowserClient();
+    const { error: updateError } = await supabase
+      .from("specialties")
+      .update({ name: editSpecialtyName.trim() })
+      .eq("id", item.id);
+
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+
+    setStatus("Especialidade atualizada.");
+    cancelEditingSpecialty();
     await load();
   }
 
@@ -179,11 +222,66 @@ export default function ServicesPage() {
     await load();
   }
 
+  function startEditingService(item: ServiceRow) {
+    setEditingServiceId(item.id);
+    setEditServiceName(item.name);
+    setEditDurationMin(String(item.duration_min));
+    setEditPrice(formatPriceFromCents(item.price_cents));
+    setEditServiceSpecialtyId(item.specialty_id ?? "");
+    setError(null);
+    setStatus(null);
+  }
+
+  function cancelEditingService() {
+    setEditingServiceId(null);
+    setEditServiceName("");
+    setEditDurationMin("30");
+    setEditPrice("");
+    setEditServiceSpecialtyId("");
+  }
+
+  async function saveEditingService(item: ServiceRow) {
+    setError(null);
+    setStatus(null);
+
+    const parsedDuration = Number.parseInt(editDurationMin, 10);
+    if (Number.isNaN(parsedDuration) || parsedDuration <= 0) {
+      setError("Duração inválida.");
+      return;
+    }
+
+    const parsedPrice = parsePriceToCents(editPrice);
+    if (editPrice.trim() && parsedPrice === null) {
+      setError("Preço inválido.");
+      return;
+    }
+
+    const supabase = getSupabaseBrowserClient();
+    const { error: updateError } = await supabase
+      .from("services")
+      .update({
+        name: editServiceName.trim(),
+        duration_min: parsedDuration,
+        price_cents: parsedPrice,
+        specialty_id: editServiceSpecialtyId || null
+      })
+      .eq("id", item.id);
+
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+
+    setStatus("Serviço atualizado.");
+    cancelEditingService();
+    await load();
+  }
+
   return (
     <section className="page-stack">
       <div className="card">
-        <h1>ServiÃ§os e especialidades</h1>
-        <p>Cadastre os serviÃ§os disponÃ­veis e organize por especialidade.</p>
+        <h1>Serviços e especialidades</h1>
+        <p>Cadastre os serviços disponíveis e organize por especialidade.</p>
       </div>
 
       <div className="card col">
@@ -200,16 +298,16 @@ export default function ServicesPage() {
       </div>
 
       <div className="card col">
-        <h2>Novo serviÃ§o</h2>
+        <h2>Novo serviço</h2>
         <form className="col" onSubmit={handleCreateService}>
           <label className="col">
-            Nome do serviÃ§o
+            Nome do serviço
             <input value={serviceName} onChange={(e) => setServiceName(e.target.value)} required />
           </label>
 
           <div className="row">
             <label className="col">
-              DuraÃ§Ã£o (min)
+              Duração (min)
               <input
                 type="number"
                 min={1}
@@ -221,7 +319,7 @@ export default function ServicesPage() {
             </label>
 
             <label className="col">
-              PreÃ§o (R$)
+              Preço (R$)
               <input type="number" min={0} step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} />
             </label>
 
@@ -240,7 +338,7 @@ export default function ServicesPage() {
             </label>
           </div>
 
-          <button type="submit">Cadastrar serviÃ§o</button>
+          <button type="submit">Cadastrar serviço</button>
         </form>
       </div>
 
@@ -254,18 +352,40 @@ export default function ServicesPage() {
             <tr>
               <th>Nome</th>
               <th>Status</th>
-              <th>AÃ§Ã£o</th>
+              <th>Ação</th>
             </tr>
           </thead>
           <tbody>
             {specialties.map((item) => (
               <tr key={item.id}>
-                <td>{item.name}</td>
+                <td>
+                  {editingSpecialtyId === item.id ? (
+                    <input value={editSpecialtyName} onChange={(e) => setEditSpecialtyName(e.target.value)} />
+                  ) : (
+                    item.name
+                  )}
+                </td>
                 <td>{item.active ? "Ativa" : "Inativa"}</td>
                 <td>
-                  <button type="button" className="secondary" onClick={() => toggleSpecialtyActive(item)}>
-                    {item.active ? "Desativar" : "Ativar"}
-                  </button>
+                  <div className="row">
+                    {editingSpecialtyId === item.id ? (
+                      <>
+                        <button type="button" onClick={() => saveEditingSpecialty(item)}>
+                          Salvar
+                        </button>
+                        <button type="button" className="secondary" onClick={cancelEditingSpecialty}>
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" className="secondary" onClick={() => startEditingSpecialty(item)}>
+                        Editar
+                      </button>
+                    )}
+                    <button type="button" className="secondary" onClick={() => toggleSpecialtyActive(item)}>
+                      {item.active ? "Desativar" : "Ativar"}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -279,36 +399,97 @@ export default function ServicesPage() {
       </div>
 
       <div className="card">
-        <h2>ServiÃ§os</h2>
+        <h2>Serviços</h2>
         <table>
           <thead>
             <tr>
               <th>Nome</th>
-              <th>DuraÃ§Ã£o</th>
-              <th>PreÃ§o</th>
+              <th>Duração</th>
+              <th>Preço</th>
               <th>Especialidade</th>
               <th>Status</th>
-              <th>AÃ§Ã£o</th>
+              <th>Ação</th>
             </tr>
           </thead>
           <tbody>
             {services.map((item) => (
               <tr key={item.id}>
-                <td>{item.name}</td>
-                <td>{item.duration_min} min</td>
-                <td>{item.price_cents === null ? "-" : `R$ ${(item.price_cents / 100).toFixed(2)}`}</td>
-                <td>{item.specialties?.name ?? "-"}</td>
+                <td>
+                  {editingServiceId === item.id ? (
+                    <input value={editServiceName} onChange={(e) => setEditServiceName(e.target.value)} />
+                  ) : (
+                    item.name
+                  )}
+                </td>
+                <td>
+                  {editingServiceId === item.id ? (
+                    <input
+                      type="number"
+                      min={1}
+                      max={1440}
+                      value={editDurationMin}
+                      onChange={(e) => setEditDurationMin(e.target.value)}
+                    />
+                  ) : (
+                    `${item.duration_min} min`
+                  )}
+                </td>
+                <td>
+                  {editingServiceId === item.id ? (
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={editPrice}
+                      onChange={(e) => setEditPrice(e.target.value)}
+                    />
+                  ) : item.price_cents === null ? (
+                    "-"
+                  ) : (
+                    `R$ ${(item.price_cents / 100).toFixed(2)}`
+                  )}
+                </td>
+                <td>
+                  {editingServiceId === item.id ? (
+                    <select value={editServiceSpecialtyId} onChange={(e) => setEditServiceSpecialtyId(e.target.value)}>
+                      <option value="">Sem especialidade</option>
+                      {specialties.map((specialty) => (
+                        <option key={specialty.id} value={specialty.id}>
+                          {specialty.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    item.specialties?.name ?? "-"
+                  )}
+                </td>
                 <td>{item.active ? "Ativo" : "Inativo"}</td>
                 <td>
-                  <button type="button" className="secondary" onClick={() => toggleServiceActive(item)}>
-                    {item.active ? "Desativar" : "Ativar"}
-                  </button>
+                  <div className="row">
+                    {editingServiceId === item.id ? (
+                      <>
+                        <button type="button" onClick={() => saveEditingService(item)}>
+                          Salvar
+                        </button>
+                        <button type="button" className="secondary" onClick={cancelEditingService}>
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" className="secondary" onClick={() => startEditingService(item)}>
+                        Editar
+                      </button>
+                    )}
+                    <button type="button" className="secondary" onClick={() => toggleServiceActive(item)}>
+                      {item.active ? "Desativar" : "Ativar"}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
             {services.length === 0 ? (
               <tr>
-                <td colSpan={6}>Nenhum serviÃ§o cadastrado.</td>
+                <td colSpan={6}>Nenhum serviço cadastrado.</td>
               </tr>
             ) : null}
           </tbody>

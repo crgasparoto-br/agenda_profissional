@@ -1,6 +1,7 @@
 class AppointmentItem {
   const AppointmentItem({
     required this.id,
+    required this.professionalId,
     required this.startsAt,
     required this.endsAt,
     required this.status,
@@ -10,6 +11,7 @@ class AppointmentItem {
   });
 
   final String id;
+  final String professionalId;
   final DateTime startsAt;
   final DateTime endsAt;
   final String status;
@@ -24,8 +26,9 @@ class AppointmentItem {
 
     return AppointmentItem(
       id: json['id'] as String,
-      startsAt: DateTime.parse(json['starts_at'] as String).toLocal(),
-      endsAt: DateTime.parse(json['ends_at'] as String).toLocal(),
+      professionalId: json['professional_id'] as String,
+      startsAt: DateTime.parse(json['starts_at'] as String).toUtc(),
+      endsAt: DateTime.parse(json['ends_at'] as String).toUtc(),
       status: json['status'] as String,
       professionalName: (professionals?['name'] ?? '-') as String,
       serviceName: (services?['name'] ?? '-') as String,
@@ -37,6 +40,8 @@ class AppointmentItem {
 class CreateAppointmentInput {
   const CreateAppointmentInput({
     required this.clientId,
+    required this.clientName,
+    required this.clientPhone,
     required this.serviceId,
     required this.startsAt,
     required this.endsAt,
@@ -45,6 +50,8 @@ class CreateAppointmentInput {
   });
 
   final String? clientId;
+  final String? clientName;
+  final String? clientPhone;
   final String serviceId;
   final DateTime startsAt;
   final DateTime endsAt;
@@ -54,11 +61,14 @@ class CreateAppointmentInput {
   Map<String, dynamic> toJson() {
     return {
       'client_id': clientId,
+      'client_name': clientName,
+      'client_phone': clientPhone,
       'service_id': serviceId,
       'starts_at': startsAt.toUtc().toIso8601String(),
       'ends_at': endsAt.toUtc().toIso8601String(),
       'professional_id': professionalId,
       'any_available': anyAvailable,
+      'source': 'professional',
     };
   }
 }

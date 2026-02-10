@@ -114,7 +114,12 @@ Deno.serve(async (req) => {
     professional_id: professional.id,
     timezone: "America/Sao_Paulo",
     workdays: [1, 2, 3, 4, 5],
-    work_hours: { start: "09:00", end: "18:00" },
+    work_hours: {
+      start: "09:00",
+      end: "18:00",
+      lunch_break: { enabled: false, start: "12:00", end: "13:00" },
+      snack_break: { enabled: false, start: "16:00", end: "16:15" }
+    },
     slot_min: 30,
     buffer_min: 0
   });

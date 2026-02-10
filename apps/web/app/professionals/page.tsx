@@ -27,6 +27,8 @@ export default function ProfessionalsPage() {
   const [tenantId, setTenantId] = useState<string | null>(null);
 
   const [name, setName] = useState("");
+  const [editingProfessionalId, setEditingProfessionalId] = useState<string | null>(null);
+  const [editProfessionalName, setEditProfessionalName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
@@ -68,7 +70,7 @@ export default function ProfessionalsPage() {
     async function bootstrap() {
       const { data, error: tenantError } = await supabase.rpc("auth_tenant_id");
       if (tenantError || !data) {
-        setError("NÃ£o foi possÃ­vel resolver o tenant atual.");
+        setError("Nao foi possivel resolver a organizacao atual.");
         return;
       }
 
@@ -120,6 +122,38 @@ export default function ProfessionalsPage() {
     await load();
   }
 
+  function startEditingProfessional(item: ProfessionalRow) {
+    setEditingProfessionalId(item.id);
+    setEditProfessionalName(item.name);
+    setError(null);
+    setStatus(null);
+  }
+
+  function cancelEditingProfessional() {
+    setEditingProfessionalId(null);
+    setEditProfessionalName("");
+  }
+
+  async function saveEditingProfessional(item: ProfessionalRow) {
+    setError(null);
+    setStatus(null);
+
+    const supabase = getSupabaseBrowserClient();
+    const { error: updateError } = await supabase
+      .from("professionals")
+      .update({ name: editProfessionalName.trim() })
+      .eq("id", item.id);
+
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+
+    setStatus("Profissional atualizado.");
+    cancelEditingProfessional();
+    await load();
+  }
+
   function hasService(professionalId: string, serviceId: string) {
     return links.some((item) => item.professional_id === professionalId && item.service_id === serviceId);
   }
@@ -164,7 +198,7 @@ export default function ProfessionalsPage() {
     <section className="page-stack">
       <div className="card">
         <h1>Profissionais</h1>
-        <p>Cadastre profissionais e vincule quais serviÃ§os cada um executa.</p>
+        <p>Cadastre profissionais e vincule quais serviços cada um executa.</p>
       </div>
 
       <div className="card">
@@ -185,14 +219,20 @@ export default function ProfessionalsPage() {
             <tr>
               <th>Profissional</th>
               <th>Status</th>
-              <th>ServiÃ§os habilitados</th>
-              <th>AÃ§Ãµes</th>
+              <th>Serviços habilitados</th>
+              <th>Ações</th>
             </tr>
           </thead>
           <tbody>
             {professionals.map((professional) => (
               <tr key={professional.id}>
-                <td>{professional.name}</td>
+                <td>
+                  {editingProfessionalId === professional.id ? (
+                    <input value={editProfessionalName} onChange={(e) => setEditProfessionalName(e.target.value)} />
+                  ) : (
+                    professional.name
+                  )}
+                </td>
                 <td>{professional.active ? "Ativo" : "Inativo"}</td>
                 <td>
                   <div className="col">
@@ -213,9 +253,25 @@ export default function ProfessionalsPage() {
                   </div>
                 </td>
                 <td>
-                  <button type="button" className="secondary" onClick={() => toggleProfessionalActive(professional)}>
-                    {professional.active ? "Desativar" : "Ativar"}
-                  </button>
+                  <div className="row">
+                    {editingProfessionalId === professional.id ? (
+                      <>
+                        <button type="button" onClick={() => saveEditingProfessional(professional)}>
+                          Salvar
+                        </button>
+                        <button type="button" className="secondary" onClick={cancelEditingProfessional}>
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" className="secondary" onClick={() => startEditingProfessional(professional)}>
+                        Editar
+                      </button>
+                    )}
+                    <button type="button" className="secondary" onClick={() => toggleProfessionalActive(professional)}>
+                      {professional.active ? "Desativar" : "Ativar"}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

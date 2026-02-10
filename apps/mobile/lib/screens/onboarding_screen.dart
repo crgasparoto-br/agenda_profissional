@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 import '../models/app_exception.dart';
 import '../models/bootstrap_tenant.dart';
@@ -49,7 +49,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       );
 
       if (!mounted) return;
-      Navigator.pushReplacementNamed(context, '/agenda');
+      Navigator.pushReplacementNamed(context, '/menu');
     } on AppException catch (error) {
       setState(() => _error = error.message);
     } catch (_) {
@@ -79,7 +79,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
 
     if (!mounted) return;
     if (exists) {
-      Navigator.pushReplacementNamed(context, '/agenda');
+      Navigator.pushReplacementNamed(context, '/menu');
     }
   }
 
@@ -114,28 +114,40 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Configure sua conta', style: Theme.of(context).textTheme.titleLarge),
+                  Text('Configure sua conta',
+                      style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 6),
-                  const Text('Organize sua agenda e inicie os agendamentos.'),
+                  const Text(
+                      'Escolha o tipo de conta e inicie seus agendamentos.'),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<TenantType>(
                     initialValue: _tenantType,
-                    decoration: const InputDecoration(labelText: 'Tipo de contratacao'),
+                    decoration:
+                        const InputDecoration(labelText: 'Tipo de conta'),
                     items: const [
-                      DropdownMenuItem(value: TenantType.individual, child: Text('Individual')),
-                      DropdownMenuItem(value: TenantType.group, child: Text('Grupo (clinica)')),
+                      DropdownMenuItem(
+                        value: TenantType.individual,
+                        child: Text('Individual (PF)'),
+                      ),
+                      DropdownMenuItem(
+                        value: TenantType.group,
+                        child: Text('Equipe / Empresa (PJ)'),
+                      ),
                     ],
-                    onChanged: (value) => setState(() => _tenantType = value ?? TenantType.individual),
+                    onChanged: (value) => setState(
+                        () => _tenantType = value ?? TenantType.individual),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _tenantNameController,
-                    decoration: const InputDecoration(labelText: 'Nome do tenant'),
+                    decoration: const InputDecoration(
+                        labelText: 'Nome profissional ou da empresa'),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _fullNameController,
-                    decoration: const InputDecoration(labelText: 'Nome completo'),
+                    decoration:
+                        const InputDecoration(labelText: 'Nome completo'),
                   ),
                   const SizedBox(height: 12),
                   TextField(
@@ -145,7 +157,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: _loading ? null : _submit,
-                    child: Text(_loading ? 'Processando...' : 'Concluir onboarding'),
+                    child: Text(
+                        _loading ? 'Processando...' : 'Concluir onboarding'),
                   ),
                   if (_error != null) ...[
                     const SizedBox(height: 12),
@@ -154,9 +167,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                       decoration: BoxDecoration(
                         color: AppColors.danger.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                        border: Border.all(color: AppColors.danger.withValues(alpha: 0.35)),
+                        border: Border.all(
+                            color: AppColors.danger.withValues(alpha: 0.35)),
                       ),
-                      child: Text(_error!, style: const TextStyle(color: Color(0xFF702621))),
+                      child: Text(_error!,
+                          style: const TextStyle(color: Color(0xFF702621))),
                     ),
                   ],
                 ],
@@ -168,4 +183,3 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 }
-

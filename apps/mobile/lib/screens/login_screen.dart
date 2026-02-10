@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/auth_service.dart';
@@ -20,9 +20,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _loading = false;
   bool _isSignUp = false;
+  bool _showPassword = false;
+  bool _showConfirmPassword = false;
   String? _status;
   String? _error;
-  AccessPath _accessPath = AccessPath.professional;
 
   @override
   void dispose() {
@@ -55,20 +56,17 @@ class _LoginScreenState extends State<LoginScreen> {
         final response = await _authService.signUpWithPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text,
-          accessPath: _accessPath,
           fullName: _nameController.text.trim(),
         );
 
         if (response.session == null) {
-          setState(() => _status = 'Conta criada. Verifique seu email para confirmar o acesso.');
+          setState(() => _status =
+              'Conta criada. Verifique seu email para confirmar o acesso.');
           return;
         }
 
         if (!mounted) return;
-        Navigator.pushReplacementNamed(
-          context,
-          _accessPath == AccessPath.client ? '/client-area' : '/onboarding',
-        );
+        Navigator.pushReplacementNamed(context, '/onboarding');
         return;
       }
 
@@ -86,7 +84,8 @@ class _LoginScreenState extends State<LoginScreen> {
     } on AuthException catch (error) {
       setState(() => _error = error.message);
     } catch (_) {
-      setState(() => _error = _isSignUp ? 'Falha ao criar conta' : 'Falha ao autenticar');
+      setState(() =>
+          _error = _isSignUp ? 'Falha ao criar conta' : 'Falha ao autenticar');
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -125,10 +124,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: ElevatedButton(
                           onPressed: () => setState(() => _isSignUp = false),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                _isSignUp ? Colors.transparent : AppColors.primary,
-                            foregroundColor: _isSignUp ? AppColors.primary : Colors.white,
-                            side: _isSignUp ? const BorderSide(color: AppColors.primary) : null,
+                            backgroundColor: _isSignUp
+                                ? Colors.transparent
+                                : AppColors.primary,
+                            foregroundColor:
+                                _isSignUp ? AppColors.primary : Colors.white,
+                            side: _isSignUp
+                                ? const BorderSide(color: AppColors.primary)
+                                : null,
                           ),
                           child: const Text('Entrar'),
                         ),
@@ -138,10 +141,14 @@ class _LoginScreenState extends State<LoginScreen> {
                         child: ElevatedButton(
                           onPressed: () => setState(() => _isSignUp = true),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                _isSignUp ? AppColors.primary : Colors.transparent,
-                            foregroundColor: _isSignUp ? Colors.white : AppColors.primary,
-                            side: _isSignUp ? null : const BorderSide(color: AppColors.primary),
+                            backgroundColor: _isSignUp
+                                ? AppColors.primary
+                                : Colors.transparent,
+                            foregroundColor:
+                                _isSignUp ? Colors.white : AppColors.primary,
+                            side: _isSignUp
+                                ? null
+                                : const BorderSide(color: AppColors.primary),
                           ),
                           child: const Text('Criar usuario'),
                         ),
@@ -149,29 +156,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  DropdownButtonFormField<AccessPath>(
-                    initialValue: _accessPath,
-                    decoration: const InputDecoration(labelText: 'Caminho de acesso'),
-                    items: const [
-                      DropdownMenuItem(
-                        value: AccessPath.professional,
-                        child: Text('Profissional / Clinica'),
-                      ),
-                      DropdownMenuItem(
-                        value: AccessPath.client,
-                        child: Text('Cliente'),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setState(() => _accessPath = value);
-                    },
-                  ),
                   if (_isSignUp) ...[
                     const SizedBox(height: 12),
                     TextField(
                       controller: _nameController,
-                      decoration: const InputDecoration(labelText: 'Nome completo'),
+                      decoration:
+                          const InputDecoration(labelText: 'Nome completo'),
                     ),
                   ],
                   const SizedBox(height: 12),
@@ -183,18 +173,50 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: _passwordController,
-                    obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Senha'),
+                    obscureText: !_showPassword,
+                    decoration: InputDecoration(
+                      labelText: 'Senha',
+                      suffixIcon: IconButton(
+                        onPressed: () =>
+                            setState(() => _showPassword = !_showPassword),
+                        icon: Icon(
+                          _showPassword
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                        ),
+                        tooltip:
+                            _showPassword ? 'Ocultar senha' : 'Mostrar senha',
+                      ),
+                    ),
                   ),
                   if (_isSignUp) ...[
                     const SizedBox(height: 12),
                     TextField(
                       controller: _confirmController,
-                      obscureText: true,
-                      decoration: const InputDecoration(labelText: 'Confirmar senha'),
+                      obscureText: !_showConfirmPassword,
+                      decoration: InputDecoration(
+                        labelText: 'Confirmar senha',
+                        suffixIcon: IconButton(
+                          onPressed: () => setState(() =>
+                              _showConfirmPassword = !_showConfirmPassword),
+                          icon: Icon(
+                            _showConfirmPassword
+                                ? Icons.visibility_off_outlined
+                                : Icons.visibility_outlined,
+                          ),
+                          tooltip: _showConfirmPassword
+                              ? 'Ocultar senha'
+                              : 'Mostrar senha',
+                        ),
+                      ),
                     ),
                   ],
                   const SizedBox(height: 16),
+                  const Text(
+                    'Acesso exclusivo para profissionais e equipes de empresas.',
+                    style: TextStyle(color: Color(0xFF66717F)),
+                  ),
+                  const SizedBox(height: 12),
                   ElevatedButton(
                     onPressed: _loading ? null : _submit,
                     child: Text(
@@ -210,9 +232,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       decoration: BoxDecoration(
                         color: AppColors.secondary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                        border: Border.all(color: AppColors.secondary.withValues(alpha: 0.35)),
+                        border: Border.all(
+                            color: AppColors.secondary.withValues(alpha: 0.35)),
                       ),
-                      child: Text(_status!, style: const TextStyle(color: Color(0xFF0F4D50))),
+                      child: Text(_status!,
+                          style: const TextStyle(color: Color(0xFF0F4D50))),
                     ),
                   ],
                   if (_error != null) ...[
@@ -222,9 +246,11 @@ class _LoginScreenState extends State<LoginScreen> {
                       decoration: BoxDecoration(
                         color: AppColors.danger.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                        border: Border.all(color: AppColors.danger.withValues(alpha: 0.35)),
+                        border: Border.all(
+                            color: AppColors.danger.withValues(alpha: 0.35)),
                       ),
-                      child: Text(_error!, style: const TextStyle(color: Color(0xFF702621))),
+                      child: Text(_error!,
+                          style: const TextStyle(color: Color(0xFF702621))),
                     ),
                   ],
                 ],

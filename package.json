@@ -11,7 +11,7 @@
     "dev:supabase": "supabase start",
     "dev:supabase:stop": "supabase stop",
     "supabase:migrate": "supabase db push",
-    "supabase:functions:deploy": "supabase functions deploy bootstrap-tenant && supabase functions deploy create-appointment",
+    "supabase:functions:deploy": "supabase functions deploy bootstrap-tenant && supabase functions deploy create-appointment && supabase functions deploy whatsapp-webhook",
     "lint:web": "npm --workspace apps/web run lint",
     "typecheck": "npm --workspace packages/shared run typecheck && npm --workspace apps/web run typecheck"
   },

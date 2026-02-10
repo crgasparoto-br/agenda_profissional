@@ -35,6 +35,22 @@
         "/^New-Item -ItemType Directory -Path \"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\apps\\\\web\\\\public\\\\brand\" -Force \\| Out-Null; Copy-Item \"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\logo\\\\professional_01\\.png\" \"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\apps\\\\web\\\\public\\\\brand\\\\agenda-logo\\.png\" -Force; New-Item -ItemType Directory -Path \"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\apps\\\\mobile\\\\assets\\\\brand\" -Force \\| Out-Null; Copy-Item \"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\logo\\\\professional_01\\.png\" \"C:\\\\Users\\\\PC01\\\\OneDrive\\\\Projetos\\\\agenda_profissional\\\\apps\\\\mobile\\\\assets\\\\brand\\\\agenda-logo\\.png\" -Force$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^npm i -g supabase$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^winget install Supabase\\.CLI$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^choco install supabase$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^winget source update$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

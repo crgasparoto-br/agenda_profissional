@@ -4,27 +4,48 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { CreateAppointmentInputSchema } from "@agenda-profissional/shared";
 import type { Tables } from "@agenda-profissional/shared/database.types";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { getFunctionErrorMessage } from "@/lib/function-error";
+import { formatPhone } from "@/lib/phone";
 
 type Option = { id: string; label: string };
 type ClientOption = Pick<Tables<"clients">, "id" | "full_name">;
-type ServiceOption = Pick<Tables<"services">, "id" | "name">;
+type ServiceOption = Pick<Tables<"services">, "id" | "name" | "duration_min">;
 type ProfessionalOption = Pick<Tables<"professionals">, "id" | "name">;
+type ServiceItem = Option & { durationMin: number };
+
+function formatDateTimeLocal(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+}
 
 export default function NewAppointmentPage() {
   const [clients, setClients] = useState<Option[]>([]);
-  const [services, setServices] = useState<Option[]>([]);
+  const [services, setServices] = useState<ServiceItem[]>([]);
   const [professionals, setProfessionals] = useState<Option[]>([]);
 
   const [clientId, setClientId] = useState<string>("");
+  const [clientName, setClientName] = useState("");
+  const [clientPhone, setClientPhone] = useState("");
   const [serviceId, setServiceId] = useState<string>("");
   const [professionalId, setProfessionalId] = useState<string>("");
   const [anyAvailable, setAnyAvailable] = useState(true);
   const [startsAt, setStartsAt] = useState("");
-  const [endsAt, setEndsAt] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const canSubmit = useMemo(() => serviceId && startsAt && endsAt, [serviceId, startsAt, endsAt]);
+  const selectedService = useMemo(() => services.find((item) => item.id === serviceId) ?? null, [services, serviceId]);
+  const endsAt = useMemo(() => {
+    if (!startsAt || !selectedService) return "";
+    const startDate = new Date(startsAt);
+    if (Number.isNaN(startDate.getTime())) return "";
+    const endDate = new Date(startDate.getTime() + selectedService.durationMin * 60 * 1000);
+    return formatDateTimeLocal(endDate);
+  }, [startsAt, selectedService]);
+  const canSubmit = useMemo(() => Boolean(serviceId && startsAt && endsAt), [serviceId, startsAt, endsAt]);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -32,12 +53,18 @@ export default function NewAppointmentPage() {
     async function loadOptions() {
       const [{ data: clientsData }, { data: servicesData }, { data: professionalsData }] = await Promise.all([
         supabase.from("clients").select("id, full_name").order("full_name"),
-        supabase.from("services").select("id, name").eq("active", true).order("name"),
+        supabase.from("services").select("id, name, duration_min").eq("active", true).order("name"),
         supabase.from("professionals").select("id, name").eq("active", true).order("name")
       ]);
 
       setClients((clientsData ?? []).map((c: ClientOption) => ({ id: c.id, label: c.full_name })));
-      setServices((servicesData ?? []).map((s: ServiceOption) => ({ id: s.id, label: s.name })));
+      setServices(
+        (servicesData ?? []).map((s: ServiceOption) => ({
+          id: s.id,
+          label: s.name,
+          durationMin: s.duration_min
+        }))
+      );
       setProfessionals((professionalsData ?? []).map((p: ProfessionalOption) => ({ id: p.id, label: p.name })));
     }
 
@@ -51,11 +78,14 @@ export default function NewAppointmentPage() {
 
     const parsed = CreateAppointmentInputSchema.safeParse({
       client_id: clientId || null,
+      client_name: clientId ? null : clientName || null,
+      client_phone: clientId ? null : clientPhone || null,
       service_id: serviceId,
       starts_at: new Date(startsAt).toISOString(),
       ends_at: new Date(endsAt).toISOString(),
       professional_id: anyAvailable ? null : professionalId || null,
-      any_available: anyAvailable
+      any_available: anyAvailable,
+      source: "professional"
     });
 
     if (!parsed.success) {
@@ -69,7 +99,7 @@ export default function NewAppointmentPage() {
     });
 
     if (invokeError) {
-      setError(invokeError.message);
+      setError(await getFunctionErrorMessage(invokeError, "Nao foi possivel criar o agendamento."));
       return;
     }
 
@@ -83,7 +113,7 @@ export default function NewAppointmentPage() {
         <label className="col">
           Cliente (opcional)
           <select value={clientId} onChange={(e) => setClientId(e.target.value)}>
-            <option value="">Sem cliente cadastrado</option>
+            <option value="">Novo cliente (via WhatsApp)</option>
             {clients.map((item) => (
               <option value={item.id} key={item.id}>
                 {item.label}
@@ -91,6 +121,25 @@ export default function NewAppointmentPage() {
             ))}
           </select>
         </label>
+
+        {!clientId ? (
+          <div className="row">
+            <label className="col">
+              Nome do cliente (opcional)
+              <input value={clientName} onChange={(e) => setClientName(e.target.value)} />
+            </label>
+            <label className="col">
+              WhatsApp do cliente
+              <input
+                value={clientPhone}
+                onChange={(e) => setClientPhone(formatPhone(e.target.value))}
+                inputMode="tel"
+                placeholder="(11) 99999-9999"
+                required
+              />
+            </label>
+          </div>
+        ) : null}
 
         <label className="col">
           Serviço
@@ -129,8 +178,8 @@ export default function NewAppointmentPage() {
         </label>
 
         <label className="col">
-          Fim
-          <input type="datetime-local" value={endsAt} onChange={(e) => setEndsAt(e.target.value)} required />
+          Fim (calculado automaticamente)
+          <input type="datetime-local" value={endsAt} readOnly disabled />
         </label>
 
         {status ? <div className="notice">{status}</div> : null}
