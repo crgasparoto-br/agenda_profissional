@@ -3,8 +3,23 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/appointment.dart';
 import 'response_utils.dart';
 
+class ProfessionalScheduleSettings {
+  const ProfessionalScheduleSettings({
+    required this.professionalId,
+    required this.timezone,
+    required this.workdays,
+    required this.workHours,
+  });
+
+  final String professionalId;
+  final String timezone;
+  final dynamic workdays;
+  final dynamic workHours;
+}
+
 class AppointmentService {
-  AppointmentService({SupabaseClient? client}) : _client = client ?? Supabase.instance.client;
+  AppointmentService({SupabaseClient? client})
+      : _client = client ?? Supabase.instance.client;
 
   final SupabaseClient _client;
 
@@ -21,7 +36,8 @@ class AppointmentService {
   }) async {
     var query = _client
         .from('appointments')
-        .select('id, professional_id, starts_at, ends_at, status, professionals(name), services(name), clients(full_name)')
+        .select(
+            'id, professional_id, starts_at, ends_at, status, professionals(name), services(name, duration_min, interval_min), clients(full_name)')
         .gte('starts_at', start.toUtc().toIso8601String())
         .lt('starts_at', end.toUtc().toIso8601String());
     if (professionalId != null && professionalId.isNotEmpty) {
@@ -30,10 +46,13 @@ class AppointmentService {
 
     final response = await query.order('starts_at');
 
-    return List<Map<String, dynamic>>.from(response).map(AppointmentItem.fromJson).toList();
+    return List<Map<String, dynamic>>.from(response)
+        .map(AppointmentItem.fromJson)
+        .toList();
   }
 
-  Future<Map<String, String>> getProfessionalTimezones(List<String> professionalIds) async {
+  Future<Map<String, String>> getProfessionalTimezones(
+      List<String> professionalIds) async {
     if (professionalIds.isEmpty) return {};
 
     final response = await _client
@@ -45,7 +64,9 @@ class AppointmentService {
     for (final row in List<Map<String, dynamic>>.from(response)) {
       final professionalId = row['professional_id'];
       final timezone = row['timezone'];
-      if (professionalId is String && timezone is String && timezone.isNotEmpty) {
+      if (professionalId is String &&
+          timezone is String &&
+          timezone.isNotEmpty) {
         map[professionalId] = timezone;
       }
     }
@@ -53,8 +74,84 @@ class AppointmentService {
     return map;
   }
 
+  Future<Map<String, ProfessionalScheduleSettings>>
+      getProfessionalScheduleSettings(List<String> professionalIds) async {
+    if (professionalIds.isEmpty) return {};
+
+    final response = await _client
+        .from('professional_schedule_settings')
+        .select('professional_id, timezone, workdays, work_hours')
+        .inFilter('professional_id', professionalIds);
+
+    final map = <String, ProfessionalScheduleSettings>{};
+    for (final row in List<Map<String, dynamic>>.from(response)) {
+      final professionalId = row['professional_id'];
+      if (professionalId is! String || professionalId.isEmpty) continue;
+
+      map[professionalId] = ProfessionalScheduleSettings(
+        professionalId: professionalId,
+        timezone: (row['timezone'] as String?)?.isNotEmpty == true
+            ? row['timezone'] as String
+            : 'America/Sao_Paulo',
+        workdays: row['workdays'],
+        workHours: row['work_hours'],
+      );
+    }
+
+    return map;
+  }
+
+  Future<Map<String, int>> getProfessionalSlotMinutes(
+      List<String> professionalIds) async {
+    if (professionalIds.isEmpty) return {};
+
+    final response = await _client
+        .from('professional_services')
+        .select('professional_id, services(duration_min, interval_min)')
+        .inFilter('professional_id', professionalIds);
+
+    final slotCandidates = <String, List<int>>{};
+    for (final row in List<Map<String, dynamic>>.from(response)) {
+      final professionalId = row['professional_id'];
+      if (professionalId is! String || professionalId.isEmpty) continue;
+
+      final serviceRaw = row['services'];
+      final service = serviceRaw is Map<String, dynamic>
+          ? serviceRaw
+          : serviceRaw is List &&
+                  serviceRaw.isNotEmpty &&
+                  serviceRaw.first is Map<String, dynamic>
+              ? serviceRaw.first as Map<String, dynamic>
+              : null;
+      if (service == null) continue;
+
+      final duration = (service['duration_min'] as num?)?.toInt() ?? 0;
+      final interval = (service['interval_min'] as num?)?.toInt() ?? 0;
+      final blockMinutes = duration + interval;
+      if (blockMinutes <= 0) continue;
+
+      slotCandidates
+          .putIfAbsent(professionalId, () => <int>[])
+          .add(blockMinutes);
+    }
+
+    final slotMinutesByProfessional = <String, int>{};
+    for (final professionalId in professionalIds) {
+      final candidates = slotCandidates[professionalId];
+      if (candidates == null || candidates.isEmpty) {
+        slotMinutesByProfessional[professionalId] = 30;
+        continue;
+      }
+      candidates.sort();
+      slotMinutesByProfessional[professionalId] = candidates.first;
+    }
+
+    return slotMinutesByProfessional;
+  }
+
   Future<void> createAppointment(CreateAppointmentInput input) async {
-    final response = await _client.functions.invoke('create-appointment', body: input.toJson());
+    final response = await _client.functions
+        .invoke('create-appointment', body: input.toJson());
 
     ensureExpectedStatus(
       actualStatus: response.status,

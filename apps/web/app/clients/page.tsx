@@ -146,74 +146,76 @@ export default function ClientsPage() {
       {error ? <div className="error">{error}</div> : null}
 
       <div className="card">
-        <table>
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>Telefone</th>
-              <th>Notas</th>
-              <th>Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {clients.map((client) => {
-              const isEditing = editingClientId === client.id;
-              return (
-                <tr key={client.id}>
-                  <td>
-                    {isEditing ? (
-                      <input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} />
-                    ) : (
-                      client.full_name
-                    )}
-                  </td>
-                  <td>
-                    {isEditing ? (
-                      <input
-                        value={editPhone}
-                        onChange={(e) => setEditPhone(formatPhone(e.target.value))}
-                        inputMode="tel"
-                        placeholder="(11) 99999-9999"
-                      />
-                    ) : (
-                      client.phone ?? "-"
-                    )}
-                  </td>
-                  <td>
-                    {isEditing ? (
-                      <input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
-                    ) : (
-                      client.notes ?? "-"
-                    )}
-                  </td>
-                  <td>
-                    <div className="row">
-                      {isEditing ? (
-                        <>
-                          <button type="button" onClick={() => saveEditing(client.id)}>
-                            Salvar
-                          </button>
-                          <button type="button" className="secondary" onClick={cancelEditing}>
-                            Cancelar
-                          </button>
-                        </>
-                      ) : (
-                        <button type="button" className="secondary" onClick={() => startEditing(client)}>
-                          Editar
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-            {clients.length === 0 ? (
+        <div className="table-wrap">
+          <table>
+            <thead>
               <tr>
-                <td colSpan={4}>Nenhum cliente cadastrado.</td>
+                <th>Nome</th>
+                <th>Telefone</th>
+                <th>Notas</th>
+                <th>Ações</th>
               </tr>
-            ) : null}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {clients.map((client) => {
+                const isEditing = editingClientId === client.id;
+                return (
+                  <tr key={client.id}>
+                    <td>
+                      {isEditing ? (
+                        <input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} />
+                      ) : (
+                        client.full_name
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <input
+                          value={editPhone}
+                          onChange={(e) => setEditPhone(formatPhone(e.target.value))}
+                          inputMode="tel"
+                          placeholder="(11) 99999-9999"
+                        />
+                      ) : (
+                        client.phone ?? "-"
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+                      ) : (
+                        client.notes ?? "-"
+                      )}
+                    </td>
+                    <td>
+                      <div className="row actions-row">
+                        {isEditing ? (
+                          <>
+                            <button type="button" onClick={() => saveEditing(client.id)}>
+                              Salvar
+                            </button>
+                            <button type="button" className="secondary" onClick={cancelEditing}>
+                              Cancelar
+                            </button>
+                          </>
+                        ) : (
+                          <button type="button" className="secondary" onClick={() => startEditing(client)}>
+                            Editar
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+              {clients.length === 0 ? (
+                <tr>
+                  <td colSpan={4}>Nenhum cliente cadastrado.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
   );

@@ -9,6 +9,7 @@ import { getFunctionErrorMessage } from "@/lib/function-error";
 import { formatPhone } from "@/lib/phone";
 
 export default function OnboardingPage() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
   const router = useRouter();
   const [tenantType, setTenantType] = useState<"individual" | "group">("individual");
   const [tenantName, setTenantName] = useState("");
@@ -56,7 +57,17 @@ export default function OnboardingPage() {
     });
 
     if (fnError) {
-      setError(await getFunctionErrorMessage(fnError, "Nao foi possivel concluir a configuracao inicial."));
+      const baseError = await getFunctionErrorMessage(fnError, "Nao foi possivel concluir a configuracao inicial.");
+      const networkEdgeError =
+        typeof fnError.message === "string" &&
+        /failed to send a request to the edge function/i.test(fnError.message);
+
+      if (networkEdgeError) {
+        setError(`${baseError} URL atual do Supabase: ${supabaseUrl || "nao definida"}.`);
+        return;
+      }
+
+      setError(baseError);
       return;
     }
 

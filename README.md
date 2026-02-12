@@ -67,16 +67,19 @@ npm run supabase:functions:deploy
 1. Configure variáveis em `supabase/functions/.env` (veja `supabase/functions/.env.example`):
 - `WHATSAPP_VERIFY_TOKEN`
 - `WHATSAPP_ACCESS_TOKEN`
-- `WHATSAPP_PHONE_NUMBER_ID`
-- `WHATSAPP_DEFAULT_TENANT_ID` (ou `WHATSAPP_TENANT_MAP_JSON` para múltiplas organizações)
 - `OPENAI_API_KEY`
+- `WHATSAPP_PHONE_NUMBER_ID` (fallback opcional)
+- `WHATSAPP_DEFAULT_TENANT_ID` (fallback opcional)
+- `WHATSAPP_TENANT_MAP_JSON` (fallback opcional)
 
 2. Publique a função:
 ```bash
 supabase functions deploy whatsapp-webhook
 ```
 
-3. Configure webhook no Meta WhatsApp:
+3. No painel web (`/whatsapp`), cadastre o número oficial do profissional/organização com o `Phone Number ID` do Meta e habilite a IA.
+
+4. Configure webhook no Meta WhatsApp:
 - Verificação (`GET`): `.../functions/v1/whatsapp-webhook`
 - Eventos (`POST`): `.../functions/v1/whatsapp-webhook`
 

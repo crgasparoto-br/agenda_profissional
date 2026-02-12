@@ -9,9 +9,9 @@ import { formatPhone } from "@/lib/phone";
 
 type Option = { id: string; label: string };
 type ClientOption = Pick<Tables<"clients">, "id" | "full_name">;
-type ServiceOption = Pick<Tables<"services">, "id" | "name" | "duration_min">;
+type ServiceOption = { id: string; name: string; duration_min: number; interval_min: number };
 type ProfessionalOption = Pick<Tables<"professionals">, "id" | "name">;
-type ServiceItem = Option & { durationMin: number };
+type ServiceItem = Option & { durationMin: number; intervalMin: number };
 
 function formatDateTimeLocal(date: Date) {
   const year = date.getFullYear();
@@ -42,18 +42,20 @@ export default function NewAppointmentPage() {
     if (!startsAt || !selectedService) return "";
     const startDate = new Date(startsAt);
     if (Number.isNaN(startDate.getTime())) return "";
-    const endDate = new Date(startDate.getTime() + selectedService.durationMin * 60 * 1000);
+    const totalBlockMinutes = selectedService.durationMin + selectedService.intervalMin;
+    const endDate = new Date(startDate.getTime() + totalBlockMinutes * 60 * 1000);
     return formatDateTimeLocal(endDate);
   }, [startsAt, selectedService]);
   const canSubmit = useMemo(() => Boolean(serviceId && startsAt && endsAt), [serviceId, startsAt, endsAt]);
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
+    const servicesTable = supabase.from("services") as any;
 
     async function loadOptions() {
       const [{ data: clientsData }, { data: servicesData }, { data: professionalsData }] = await Promise.all([
         supabase.from("clients").select("id, full_name").order("full_name"),
-        supabase.from("services").select("id, name, duration_min").eq("active", true).order("name"),
+        servicesTable.select("id, name, duration_min, interval_min").eq("active", true).order("name"),
         supabase.from("professionals").select("id, name").eq("active", true).order("name")
       ]);
 
@@ -62,7 +64,8 @@ export default function NewAppointmentPage() {
         (servicesData ?? []).map((s: ServiceOption) => ({
           id: s.id,
           label: s.name,
-          durationMin: s.duration_min
+          durationMin: s.duration_min,
+          intervalMin: s.interval_min
         }))
       );
       setProfessionals((professionalsData ?? []).map((p: ProfessionalOption) => ({ id: p.id, label: p.name })));
@@ -178,7 +181,7 @@ export default function NewAppointmentPage() {
         </label>
 
         <label className="col">
-          Fim (calculado automaticamente)
+          Fim de bloqueio (duracao + intervalo)
           <input type="datetime-local" value={endsAt} readOnly disabled />
         </label>
 

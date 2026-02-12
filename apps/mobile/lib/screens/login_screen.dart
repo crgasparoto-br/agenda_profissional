@@ -82,6 +82,17 @@ class _LoginScreenState extends State<LoginScreen> {
         path == AccessPath.client ? '/client-area' : '/onboarding',
       );
     } on AuthException catch (error) {
+      final message = error.message.toLowerCase();
+      if (message.contains('invalid login credentials')) {
+        setState(() => _error =
+            'Email ou senha invalido. Se os dados estiverem corretos, confira se o app mobile esta conectado ao mesmo Supabase da web.');
+        return;
+      }
+      if (message.contains('invalid api key') || message.contains('apikey')) {
+        setState(() => _error =
+            'Configuracao do Supabase invalida no app mobile (SUPABASE_ANON_KEY).');
+        return;
+      }
       setState(() => _error = error.message);
     } catch (_) {
       setState(() =>

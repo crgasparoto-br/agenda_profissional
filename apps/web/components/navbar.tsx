@@ -22,38 +22,69 @@ export function Navbar() {
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
+    let active = true;
 
-    supabase.auth
-      .getUser()
-      .then(
-        async ({ data }: { data: { user: { id: string; user_metadata?: Record<string, unknown> } | null } }) => {
-          if (!data.user) return;
+    async function loadProfile() {
+      const { data }: { data: { user: { id: string; user_metadata?: Record<string, unknown> } | null } } =
+        await supabase.auth.getUser();
 
-          setAccessPath(parseAccessPath(data.user.user_metadata?.access_path));
+      if (!active) return;
 
-          const { data: profileData } = await supabase
-            .from("profiles")
-            .select("full_name, role, tenant_id")
-            .eq("id", data.user.id)
-            .maybeSingle();
+      if (!data.user) {
+        setAccessPath("professional");
+        setProfile(null);
+        setTenantAccountType(null);
+        return;
+      }
 
-          const typedProfile = profileData as ProfileState;
-          if (typedProfile) {
-            setProfile(typedProfile);
+      setAccessPath(parseAccessPath(data.user.user_metadata?.access_path));
 
-            const { data: tenantData } = await supabase
-              .from("tenants")
-              .select("type")
-              .eq("id", typedProfile.tenant_id)
-              .maybeSingle();
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("full_name, role, tenant_id")
+        .eq("id", data.user.id)
+        .maybeSingle();
 
-            const accountType = (tenantData as TenantRow)?.type;
-            if (accountType === "individual" || accountType === "group") {
-              setTenantAccountType(accountType);
-            }
-          }
-        }
-      );
+      if (!active) return;
+
+      const typedProfile = profileData as ProfileState;
+      if (!typedProfile) {
+        setProfile(null);
+        setTenantAccountType(null);
+        return;
+      }
+
+      setProfile(typedProfile);
+
+      const { data: tenantData } = await supabase
+        .from("tenants")
+        .select("type")
+        .eq("id", typedProfile.tenant_id)
+        .maybeSingle();
+
+      if (!active) return;
+
+      const accountType = (tenantData as TenantRow)?.type;
+      if (accountType === "individual" || accountType === "group") {
+        setTenantAccountType(accountType);
+        return;
+      }
+
+      setTenantAccountType(null);
+    }
+
+    loadProfile();
+
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange(() => {
+      loadProfile();
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const canManage = profile && ["owner", "admin", "receptionist"].includes(profile.role);
@@ -92,6 +123,7 @@ export function Navbar() {
             {canManage && !showPjRegistrationsMenu ? <Link href="/professionals">Profissionais</Link> : null}
             {canManage && !showPjRegistrationsMenu ? <Link href="/schedules">Horários</Link> : null}
             {canManage ? <Link href="/appointments/new">Novo agendamento</Link> : null}
+            {canManage ? <Link href="/whatsapp">WhatsApp + IA</Link> : null}
             <Link href="/onboarding">Configuração inicial</Link>
           </>
         )}

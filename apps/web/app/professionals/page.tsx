@@ -214,6 +214,7 @@ export default function ProfessionalsPage() {
 
       <div className="card">
         <h2>Lista de profissionais</h2>
+        <div className="table-wrap">
         <table>
           <thead>
             <tr>
@@ -235,7 +236,7 @@ export default function ProfessionalsPage() {
                 </td>
                 <td>{professional.active ? "Ativo" : "Inativo"}</td>
                 <td>
-                  <div className="col">
+                  <div className="col checklist-grid">
                     {services.map((service) => {
                       const checked = hasService(professional.id, service.id);
                       return (
@@ -253,7 +254,7 @@ export default function ProfessionalsPage() {
                   </div>
                 </td>
                 <td>
-                  <div className="row">
+                  <div className="row actions-row">
                     {editingProfessionalId === professional.id ? (
                       <>
                         <button type="button" onClick={() => saveEditingProfessional(professional)}>
@@ -282,6 +283,7 @@ export default function ProfessionalsPage() {
             ) : null}
           </tbody>
         </table>
+        </div>
       </div>
     </section>
   );

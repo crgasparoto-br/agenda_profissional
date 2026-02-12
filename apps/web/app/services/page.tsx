@@ -13,6 +13,7 @@ type ServiceRow = {
   id: string;
   name: string;
   duration_min: number;
+  interval_min: number;
   price_cents: number | null;
   active: boolean;
   specialty_id: string | null;
@@ -27,6 +28,7 @@ export default function ServicesPage() {
   const [specialtyName, setSpecialtyName] = useState("");
   const [serviceName, setServiceName] = useState("");
   const [durationMin, setDurationMin] = useState("30");
+  const [intervalMin, setIntervalMin] = useState("0");
   const [price, setPrice] = useState("");
   const [serviceSpecialtyId, setServiceSpecialtyId] = useState("");
   const [editingSpecialtyId, setEditingSpecialtyId] = useState<string | null>(null);
@@ -34,6 +36,7 @@ export default function ServicesPage() {
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
   const [editServiceName, setEditServiceName] = useState("");
   const [editDurationMin, setEditDurationMin] = useState("30");
+  const [editIntervalMin, setEditIntervalMin] = useState("0");
   const [editPrice, setEditPrice] = useState("");
   const [editServiceSpecialtyId, setEditServiceSpecialtyId] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -41,10 +44,13 @@ export default function ServicesPage() {
 
   async function load() {
     const supabase = getSupabaseBrowserClient();
+    const servicesTable = supabase.from("services") as any;
     const [{ data: specialtiesData, error: specialtiesError }, { data: servicesData, error: servicesError }] =
       await Promise.all([
         supabase.from("specialties").select("id, name, active").order("name"),
-        supabase.from("services").select("id, name, duration_min, price_cents, active, specialty_id, specialties(name)").order("name")
+        servicesTable
+          .select("id, name, duration_min, interval_min, price_cents, active, specialty_id, specialties(name)")
+          .order("name")
       ]);
 
     if (specialtiesError) {
@@ -126,6 +132,11 @@ export default function ServicesPage() {
       setError("Duração inválida.");
       return;
     }
+    const parsedInterval = Number.parseInt(intervalMin, 10);
+    if (Number.isNaN(parsedInterval) || parsedInterval < 0 || parsedInterval > 240) {
+      setError("Intervalo inválido.");
+      return;
+    }
 
     const parsedPrice = parsePriceToCents(price);
     if (price.trim() && parsedPrice === null) {
@@ -134,10 +145,12 @@ export default function ServicesPage() {
     }
 
     const supabase = getSupabaseBrowserClient();
-    const { error: insertError } = await supabase.from("services").insert({
+    const servicesTable = supabase.from("services") as any;
+    const { error: insertError } = await servicesTable.insert({
       tenant_id: tenantId,
       name: serviceName.trim(),
       duration_min: parsedDuration,
+      interval_min: parsedInterval,
       price_cents: parsedPrice,
       specialty_id: serviceSpecialtyId || null
     });
@@ -149,6 +162,7 @@ export default function ServicesPage() {
 
     setServiceName("");
     setDurationMin("30");
+    setIntervalMin("0");
     setPrice("");
     setServiceSpecialtyId("");
     setStatus("Serviço cadastrado.");
@@ -159,8 +173,8 @@ export default function ServicesPage() {
     setError(null);
     setStatus(null);
     const supabase = getSupabaseBrowserClient();
-    const { error: updateError } = await supabase
-      .from("services")
+    const servicesTable = supabase.from("services") as any;
+    const { error: updateError } = await servicesTable
       .update({ active: !item.active })
       .eq("id", item.id);
 
@@ -226,6 +240,7 @@ export default function ServicesPage() {
     setEditingServiceId(item.id);
     setEditServiceName(item.name);
     setEditDurationMin(String(item.duration_min));
+    setEditIntervalMin(String(item.interval_min));
     setEditPrice(formatPriceFromCents(item.price_cents));
     setEditServiceSpecialtyId(item.specialty_id ?? "");
     setError(null);
@@ -236,6 +251,7 @@ export default function ServicesPage() {
     setEditingServiceId(null);
     setEditServiceName("");
     setEditDurationMin("30");
+    setEditIntervalMin("0");
     setEditPrice("");
     setEditServiceSpecialtyId("");
   }
@@ -249,6 +265,11 @@ export default function ServicesPage() {
       setError("Duração inválida.");
       return;
     }
+    const parsedInterval = Number.parseInt(editIntervalMin, 10);
+    if (Number.isNaN(parsedInterval) || parsedInterval < 0 || parsedInterval > 240) {
+      setError("Intervalo inválido.");
+      return;
+    }
 
     const parsedPrice = parsePriceToCents(editPrice);
     if (editPrice.trim() && parsedPrice === null) {
@@ -257,11 +278,12 @@ export default function ServicesPage() {
     }
 
     const supabase = getSupabaseBrowserClient();
-    const { error: updateError } = await supabase
-      .from("services")
+    const servicesTable = supabase.from("services") as any;
+    const { error: updateError } = await servicesTable
       .update({
         name: editServiceName.trim(),
         duration_min: parsedDuration,
+        interval_min: parsedInterval,
         price_cents: parsedPrice,
         specialty_id: editServiceSpecialtyId || null
       })
@@ -317,6 +339,17 @@ export default function ServicesPage() {
                 required
               />
             </label>
+            <label className="col">
+              Intervalo (min)
+              <input
+                type="number"
+                min={0}
+                max={240}
+                value={intervalMin}
+                onChange={(e) => setIntervalMin(e.target.value)}
+                required
+              />
+            </label>
 
             <label className="col">
               Preço (R$)
@@ -347,6 +380,7 @@ export default function ServicesPage() {
 
       <div className="card">
         <h2>Especialidades</h2>
+        <div className="table-wrap">
         <table>
           <thead>
             <tr>
@@ -367,7 +401,7 @@ export default function ServicesPage() {
                 </td>
                 <td>{item.active ? "Ativa" : "Inativa"}</td>
                 <td>
-                  <div className="row">
+                  <div className="row actions-row">
                     {editingSpecialtyId === item.id ? (
                       <>
                         <button type="button" onClick={() => saveEditingSpecialty(item)}>
@@ -396,15 +430,18 @@ export default function ServicesPage() {
             ) : null}
           </tbody>
         </table>
+        </div>
       </div>
 
       <div className="card">
         <h2>Serviços</h2>
+        <div className="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Nome</th>
               <th>Duração</th>
+              <th>Intervalo</th>
               <th>Preço</th>
               <th>Especialidade</th>
               <th>Status</th>
@@ -439,6 +476,19 @@ export default function ServicesPage() {
                     <input
                       type="number"
                       min={0}
+                      max={240}
+                      value={editIntervalMin}
+                      onChange={(e) => setEditIntervalMin(e.target.value)}
+                    />
+                  ) : (
+                    `${item.interval_min} min`
+                  )}
+                </td>
+                <td>
+                  {editingServiceId === item.id ? (
+                    <input
+                      type="number"
+                      min={0}
                       step="0.01"
                       value={editPrice}
                       onChange={(e) => setEditPrice(e.target.value)}
@@ -465,7 +515,7 @@ export default function ServicesPage() {
                 </td>
                 <td>{item.active ? "Ativo" : "Inativo"}</td>
                 <td>
-                  <div className="row">
+                  <div className="row actions-row">
                     {editingServiceId === item.id ? (
                       <>
                         <button type="button" onClick={() => saveEditingService(item)}>
@@ -489,11 +539,12 @@ export default function ServicesPage() {
             ))}
             {services.length === 0 ? (
               <tr>
-                <td colSpan={6}>Nenhum serviço cadastrado.</td>
+                <td colSpan={7}>Nenhum serviço cadastrado.</td>
               </tr>
             ) : null}
           </tbody>
         </table>
+        </div>
       </div>
     </section>
   );

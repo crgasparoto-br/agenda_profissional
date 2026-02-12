@@ -7,6 +7,8 @@ class AppointmentItem {
     required this.status,
     required this.professionalName,
     required this.serviceName,
+    required this.serviceDurationMin,
+    required this.serviceIntervalMin,
     required this.clientName,
   });
 
@@ -17,6 +19,8 @@ class AppointmentItem {
   final String status;
   final String professionalName;
   final String serviceName;
+  final int serviceDurationMin;
+  final int serviceIntervalMin;
   final String clientName;
 
   factory AppointmentItem.fromJson(Map<String, dynamic> json) {
@@ -32,6 +36,8 @@ class AppointmentItem {
       status: json['status'] as String,
       professionalName: (professionals?['name'] ?? '-') as String,
       serviceName: (services?['name'] ?? '-') as String,
+      serviceDurationMin: (services?['duration_min'] as num?)?.toInt() ?? 0,
+      serviceIntervalMin: (services?['interval_min'] as num?)?.toInt() ?? 0,
       clientName: (clients?['full_name'] ?? 'Sem cliente') as String,
     );
   }

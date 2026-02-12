@@ -6,11 +6,15 @@
 - `profiles`: usuário autenticado (mapeado a `auth.users`)
 - `professionals`: profissionais de atendimento (com ou sem `user_id`)
 - `specialties`: especialidades do tenant
-- `services`: serviços ofertados
+- `services`: serviços ofertados (com duração e intervalo por serviço)
 - `professional_services`: quais serviços cada profissional executa
 - `professional_specialties`: quais especialidades cada profissional cobre
 - `clients`: pacientes/clientes
-- `professional_schedule_settings`: configuração de agenda e slots
+- `professional_schedule_settings`: configuração de agenda do profissional (dias, faixas e pausas)
+- `professional_unavailability`: períodos de ausência planejada por profissional com data/hora inicial e final (ex.: férias ou bloqueios parciais)
+- `whatsapp_channel_settings`: configuração de canal WhatsApp por tenant/profissional (número, `phone_number_id`, IA ativa, prompt/modelo)
+- `whatsapp_conversations`: conversa por cliente/telefone WhatsApp
+- `whatsapp_messages`: histórico de mensagens inbound/outbound com payload da IA
 - `appointments`: agendamentos
 - `notification_log`: histórico de notificações
 - `plans/subscriptions/payments`: camada de billing preparada para evolução
@@ -25,7 +29,11 @@
 - `professionals N:N specialties` via `professional_specialties`
 - `tenants 1:N clients`
 - `professionals 1:1 professional_schedule_settings` (por tenant)
+- `professionals 1:N professional_unavailability` (por tenant)
 - `appointments` referencia `tenant + client/service/specialty/professional`
+- `tenants 1:N whatsapp_channel_settings`
+- `tenants 1:N whatsapp_conversations`
+- `whatsapp_conversations 1:N whatsapp_messages`
 - `notification_log N:1 appointments`
 
 ## Multi-tenant

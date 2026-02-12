@@ -1,4 +1,4 @@
-import { createClient } from "npm:@supabase/supabase-js@2.49.1";
+﻿import { createClient } from "npm:@supabase/supabase-js@2.49.1";
 
 const jsonHeaders = { "Content-Type": "application/json" };
 const ACTIVE_APPOINTMENT_STATUSES = ["scheduled", "confirmed"];
@@ -16,10 +16,16 @@ type IncomingWhatsappMessage = {
   text?: { body?: string };
 };
 
+type IncomingContact = {
+  wa_id?: string;
+  profile?: { name?: string };
+};
+
 type ServiceItem = {
   id: string;
   name: string;
   duration_min: number;
+  interval_min: number;
   specialty_id: string | null;
 };
 
@@ -32,6 +38,27 @@ type ProfessionalServiceLink = {
   professional_id: string;
   service_id: string;
 };
+
+type ScheduleSettingsRow = {
+  professional_id: string;
+  timezone: string;
+  workdays: unknown;
+  work_hours: unknown;
+};
+
+type UnavailabilityRow = {
+  professional_id: string;
+  starts_at: string;
+  ends_at: string;
+};
+
+type AppointmentWindowRow = {
+  professional_id: string;
+  starts_at: string;
+  ends_at: string;
+};
+
+type BreakConfig = { enabled: boolean; start: string; end: string };
 
 type TenantCatalog = {
   services: ServiceItem[];
@@ -63,6 +90,22 @@ type AppointmentExecutionResult = {
   serviceName?: string;
 };
 
+type TenantChannelConfig = {
+  tenantId: string;
+  outboundPhoneNumberId: string | null;
+  aiEnabled: boolean;
+  aiModel: string | null;
+  aiSystemPrompt: string | null;
+};
+
+type AvailabilityContext = {
+  scheduleByProfessional: Map<string, ScheduleSettingsRow>;
+  unavailabilityByProfessional: Map<string, UnavailabilityRow[]>;
+  appointmentsByProfessional: Map<string, AppointmentWindowRow[]>;
+};
+
+const ACTIVE_APPOINTMENT_STATUSES_SET = new Set(ACTIVE_APPOINTMENT_STATUSES);
+
 function normalizePhone(value: string | null | undefined): string {
   if (!value) return "";
   return value.replace(/[^\d+]/g, "");
@@ -81,7 +124,158 @@ function normalizeText(value: string): string {
     .trim();
 }
 
-function resolveTenantId(phoneNumberId: string | null): string | null {
+function parseMinutes(value: string): number | null {
+  const [hour, minute] = value.split(":").map((item) => Number.parseInt(item, 10));
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  return hour * 60 + minute;
+}
+
+function parseWorkdays(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => Number(item))
+    .filter((item) => Number.isInteger(item) && item >= 0 && item <= 6);
+}
+
+function parseBreakConfig(raw: unknown, fallbackStart: string, fallbackEnd: string): BreakConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return { enabled: false, start: fallbackStart, end: fallbackEnd };
+  }
+
+  const value = raw as Record<string, unknown>;
+  const enabled = value.enabled === true;
+  const start = typeof value.start === "string" ? value.start : fallbackStart;
+  const end = typeof value.end === "string" ? value.end : fallbackEnd;
+  return { enabled, start, end };
+}
+
+function getWeekdayAndMinutesInTimezone(isoValue: string, timezone: string) {
+  const date = new Date(isoValue);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const weekdayFormat = new Intl.DateTimeFormat("en-US", { timeZone: timezone, weekday: "short" });
+  const hourFormat = new Intl.DateTimeFormat("en-US", { timeZone: timezone, hour: "2-digit", hour12: false });
+  const minuteFormat = new Intl.DateTimeFormat("en-US", { timeZone: timezone, minute: "2-digit" });
+
+  const weekdayMap: Record<string, number> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6
+  };
+
+  const weekdayLabel = weekdayFormat.format(date);
+  const weekday = weekdayMap[weekdayLabel];
+  const hour = Number.parseInt(hourFormat.format(date), 10);
+  const minute = Number.parseInt(minuteFormat.format(date), 10);
+  if (weekday === undefined || Number.isNaN(hour) || Number.isNaN(minute)) return null;
+
+  return { weekday, minutes: hour * 60 + minute };
+}
+
+function overlaps(startA: number, endA: number, startB: number, endB: number) {
+  return startA < endB && startB < endA;
+}
+
+function hasUnavailabilityOverlap(
+  unavailabilityRows: UnavailabilityRow[] | undefined,
+  startsAtIso: string,
+  endsAtIso: string
+) {
+  if (!unavailabilityRows || unavailabilityRows.length === 0) return false;
+  const startsAt = new Date(startsAtIso);
+  const endsAt = new Date(endsAtIso);
+  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) return true;
+
+  return unavailabilityRows.some((item) => {
+    const absenceStart = new Date(item.starts_at);
+    const absenceEnd = new Date(item.ends_at);
+    if (Number.isNaN(absenceStart.getTime()) || Number.isNaN(absenceEnd.getTime())) return true;
+    return startsAt < absenceEnd && absenceStart < endsAt;
+  });
+}
+
+function isWithinSchedule(
+  settings: ScheduleSettingsRow | null | undefined,
+  startsAtIso: string,
+  endsAtIso: string
+) {
+  if (!settings) return true;
+
+  const timezone = settings.timezone || "America/Sao_Paulo";
+  const startInTz = getWeekdayAndMinutesInTimezone(startsAtIso, timezone);
+  const endInTz = getWeekdayAndMinutesInTimezone(endsAtIso, timezone);
+  if (!startInTz || !endInTz) return false;
+  if (startInTz.weekday !== endInTz.weekday) return false;
+  if (endInTz.minutes <= startInTz.minutes) return false;
+
+  const workdays = parseWorkdays(settings.workdays);
+  if (workdays.length > 0 && !workdays.includes(startInTz.weekday)) return false;
+
+  const workHours =
+    settings.work_hours && typeof settings.work_hours === "object" && !Array.isArray(settings.work_hours)
+      ? (settings.work_hours as Record<string, unknown>)
+      : {};
+
+  const dailyOverrides =
+    workHours.daily_overrides &&
+    typeof workHours.daily_overrides === "object" &&
+    !Array.isArray(workHours.daily_overrides)
+      ? (workHours.daily_overrides as Record<string, unknown>)
+      : {};
+
+  const overrideForWeekday = dailyOverrides[String(startInTz.weekday)];
+  const dayRule =
+    overrideForWeekday && typeof overrideForWeekday === "object" && !Array.isArray(overrideForWeekday)
+      ? (overrideForWeekday as Record<string, unknown>)
+      : workHours;
+
+  const workStart = typeof dayRule.start === "string" ? parseMinutes(dayRule.start) : parseMinutes("09:00");
+  const workEnd = typeof dayRule.end === "string" ? parseMinutes(dayRule.end) : parseMinutes("18:00");
+  if (workStart === null || workEnd === null || workStart >= workEnd) return false;
+  if (startInTz.minutes < workStart || endInTz.minutes > workEnd) return false;
+
+  const lunchBreak = parseBreakConfig(dayRule.lunch_break, "12:00", "13:00");
+  if (lunchBreak.enabled) {
+    const lunchStart = parseMinutes(lunchBreak.start);
+    const lunchEnd = parseMinutes(lunchBreak.end);
+    if (lunchStart === null || lunchEnd === null || lunchStart >= lunchEnd) return false;
+    if (overlaps(startInTz.minutes, endInTz.minutes, lunchStart, lunchEnd)) return false;
+  }
+
+  const snackBreak = parseBreakConfig(dayRule.snack_break, "16:00", "16:15");
+  if (snackBreak.enabled) {
+    const snackStart = parseMinutes(snackBreak.start);
+    const snackEnd = parseMinutes(snackBreak.end);
+    if (snackStart === null || snackEnd === null || snackStart >= snackEnd) return false;
+    if (overlaps(startInTz.minutes, endInTz.minutes, snackStart, snackEnd)) return false;
+  }
+
+  return true;
+}
+
+function hasAppointmentOverlapInMemory(
+  rows: AppointmentWindowRow[] | undefined,
+  startsAtIso: string,
+  endsAtIso: string
+) {
+  if (!rows || rows.length === 0) return false;
+  const startsAt = new Date(startsAtIso);
+  const endsAt = new Date(endsAtIso);
+  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) return true;
+
+  return rows.some((item) => {
+    const itemStart = new Date(item.starts_at);
+    const itemEnd = new Date(item.ends_at);
+    if (Number.isNaN(itemStart.getTime()) || Number.isNaN(itemEnd.getTime())) return true;
+    return startsAt < itemEnd && itemStart < endsAt;
+  });
+}
+
+function resolveTenantIdFromEnv(phoneNumberId: string | null): string | null {
   const mapRaw = Deno.env.get("WHATSAPP_TENANT_MAP_JSON");
   if (mapRaw) {
     try {
@@ -95,6 +289,50 @@ function resolveTenantId(phoneNumberId: string | null): string | null {
   }
 
   return Deno.env.get("WHATSAPP_DEFAULT_TENANT_ID") ?? null;
+}
+
+async function resolveTenantChannelConfig(
+  admin: ReturnType<typeof createClient>,
+  phoneNumberId: string | null
+): Promise<TenantChannelConfig | null> {
+  if (phoneNumberId) {
+    const { data: channelSetting } = await admin
+      .from("whatsapp_channel_settings")
+      .select("tenant_id, phone_number_id, ai_enabled, ai_model, ai_system_prompt")
+      .eq("phone_number_id", phoneNumberId)
+      .eq("active", true)
+      .limit(1)
+      .maybeSingle();
+
+    if (channelSetting) {
+      const typed = channelSetting as {
+        tenant_id: string;
+        phone_number_id: string;
+        ai_enabled: boolean;
+        ai_model: string | null;
+        ai_system_prompt: string | null;
+      };
+
+      return {
+        tenantId: typed.tenant_id,
+        outboundPhoneNumberId: typed.phone_number_id,
+        aiEnabled: typed.ai_enabled,
+        aiModel: typed.ai_model,
+        aiSystemPrompt: typed.ai_system_prompt
+      };
+    }
+  }
+
+  const fallbackTenantId = resolveTenantIdFromEnv(phoneNumberId);
+  if (!fallbackTenantId) return null;
+
+  return {
+    tenantId: fallbackTenantId,
+    outboundPhoneNumberId: phoneNumberId ?? Deno.env.get("WHATSAPP_PHONE_NUMBER_ID") ?? null,
+    aiEnabled: true,
+    aiModel: null,
+    aiSystemPrompt: null
+  };
 }
 
 async function verifyMetaSignature(req: Request, rawBody: string): Promise<boolean> {
@@ -121,7 +359,7 @@ async function verifyMetaSignature(req: Request, rawBody: string): Promise<boole
 }
 
 function extractIncomingMessages(payload: unknown): Array<{ phoneNumberId: string | null; message: IncomingWhatsappMessage }> {
-  const result: Array<{ phoneNumberId: string | null; message: IncomingWhatsappMessage }> = [];
+  const result: Array<{ phoneNumberId: string | null; message: IncomingWhatsappMessage & { contact_name?: string | null } }> = [];
   if (!payload || typeof payload !== "object") return result;
 
   const entries = (payload as { entry?: Array<{ changes?: Array<{ value?: Record<string, unknown> }> }> }).entry ?? [];
@@ -131,13 +369,29 @@ function extractIncomingMessages(payload: unknown): Array<{ phoneNumberId: strin
       const value = change.value ?? {};
       const metadata = (value.metadata ?? {}) as { phone_number_id?: string };
       const messages = (value.messages ?? []) as IncomingWhatsappMessage[];
+      const contacts = (value.contacts ?? []) as IncomingContact[];
       for (const message of messages) {
-        result.push({ phoneNumberId: metadata.phone_number_id ?? null, message });
+        const contactMatch =
+          contacts.find((item) => item.wa_id === message.from) ??
+          contacts[0] ??
+          null;
+        const contactName = contactMatch?.profile?.name?.trim() || null;
+        result.push({
+          phoneNumberId: metadata.phone_number_id ?? null,
+          message: { ...message, contact_name: contactName }
+        });
       }
     }
   }
 
   return result;
+}
+
+function resolveClientDisplayName(rawName: string | null | undefined): string | null {
+  if (!rawName) return null;
+  const cleaned = rawName.replace(/\s+/g, " ").trim();
+  if (!cleaned) return null;
+  return cleaned.slice(0, 120);
 }
 
 function formatConversationForAI(history: ConversationMessage[]): string {
@@ -162,6 +416,34 @@ function extractJsonObject(text: string): string | null {
   return null;
 }
 
+function extractResponseText(payload: unknown): string {
+  if (!payload || typeof payload !== "object") return "";
+  const data = payload as Record<string, unknown>;
+
+  if (typeof data.output_text === "string" && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  const output = Array.isArray(data.output) ? data.output : [];
+  const parts: string[] = [];
+  for (const item of output) {
+    if (!item || typeof item !== "object") continue;
+    const content = Array.isArray((item as Record<string, unknown>).content)
+      ? ((item as Record<string, unknown>).content as unknown[])
+      : [];
+    for (const block of content) {
+      if (!block || typeof block !== "object") continue;
+      const blockRecord = block as Record<string, unknown>;
+      const textValue = blockRecord.text;
+      if (typeof textValue === "string" && textValue.trim()) {
+        parts.push(textValue.trim());
+      }
+    }
+  }
+
+  return parts.join("\n").trim();
+}
+
 function toIsoOrNull(value: unknown): string | null {
   if (typeof value !== "string" || !value.trim()) return null;
   const dt = new Date(value);
@@ -172,7 +454,84 @@ function toIsoOrNull(value: unknown): string | null {
 function toNullableString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
-  return trimmed ? trimmed : null;
+  if (!trimmed) return null;
+  const normalized = normalizeText(trimmed);
+  if (normalized === "null" || normalized === "undefined" || normalized === "nenhum" || normalized === "none") {
+    return null;
+  }
+  return trimmed;
+}
+
+function buildServicesReply(catalog: TenantCatalog, shouldGreet: boolean): string {
+  if (catalog.services.length === 0) {
+    const prefix = shouldGreet ? "Olá! " : "";
+    return `${prefix}No momento não encontrei serviços cadastrados. Pode me dizer qual atendimento você deseja para eu confirmar aqui?`;
+  }
+  const top = catalog.services.slice(0, 8);
+  const lines = top.map((item, index) => `${index + 1}) ${item.name} (${item.duration_min} min)`);
+  const more = catalog.services.length > top.length ? "\nSe quiser, envio mais opções." : "";
+  const prefix = shouldGreet ? "Olá! " : "";
+  return `${prefix}Claro! Estes são os serviços disponíveis:\n${lines.join("\n")}${more}\nQual deles você quer agendar e para quando?`;
+}
+
+function buildCollectInfoReply(rawText: string, catalog: TenantCatalog, shouldGreet: boolean): string {
+  const normalized = normalizeText(rawText);
+  const asksServices =
+    normalized.includes("quais servicos") ||
+    normalized.includes("quais servico") ||
+    normalized.includes("servicos voces tem") ||
+    normalized.includes("servico voces tem") ||
+    normalized.includes("lista de servicos") ||
+    normalized.includes("servico");
+
+  if (asksServices) {
+    return buildServicesReply(catalog, shouldGreet);
+  }
+
+  const isGreeting =
+    normalized === "oi" ||
+    normalized === "ola" ||
+    normalized === "bom dia" ||
+    normalized === "boa tarde" ||
+    normalized === "boa noite";
+
+  if (isGreeting) {
+    return "Para eu te ajudar com o agendamento, me diga qual serviço você procura e sua preferência de dia/horário.";
+  }
+
+  const prefix = shouldGreet ? "Olá! " : "";
+  return `${prefix}Perfeito. Me diga o serviço desejado e sua preferência de dia e horário para eu te enviar as melhores opções.`;
+}
+
+function looksLikeRescheduleRequest(rawText: string): boolean {
+  const normalized = normalizeText(rawText);
+  if (!normalized) return false;
+  return (
+    normalized.includes("remarcar") ||
+    normalized.includes("remarcacao") ||
+    normalized.includes("remarcacao") ||
+    normalized.includes("alterar meu horario") ||
+    normalized.includes("alterar horario") ||
+    normalized.includes("mudar horario") ||
+    normalized.includes("trocar horario")
+  );
+}
+
+function shouldPreserveAiCollectReply(decision: IntentDecision): boolean {
+  const reply = (decision.reply_text ?? "").trim();
+  if (!reply) return false;
+  if (decision.confidence < 0.6) return false;
+
+  const normalized = normalizeText(reply);
+  const asksToConfirm =
+    normalized.includes("confirm") ||
+    normalized.includes("corr") ||
+    normalized.includes("quis dizer") ||
+    normalized.includes("ano") ||
+    normalized.includes("data");
+  const hasDatePattern = /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(reply);
+
+  return asksToConfirm || hasDatePattern;
 }
 
 function parseIntentDecision(raw: unknown): IntentDecision | null {
@@ -193,7 +552,7 @@ function parseIntentDecision(raw: unknown): IntentDecision | null {
     confidence,
     reply_text:
       toNullableString(item.reply_text) ??
-      "Perfeito. Pode me dizer servico e horario que voce prefere?",
+      "Perfeito. Pode me dizer o serviço e o horário que você prefere?",
     service_id: toNullableString(item.service_id),
     service_name: toNullableString(item.service_name),
     professional_id: toNullableString(item.professional_id),
@@ -212,7 +571,7 @@ async function loadTenantCatalog(admin: ReturnType<typeof createClient>, tenantI
   const [{ data: servicesRows }, { data: professionalsRows }, { data: linksRows }] = await Promise.all([
     admin
       .from("services")
-      .select("id, name, duration_min, specialty_id")
+      .select("id, name, duration_min, interval_min, specialty_id")
       .eq("tenant_id", tenantId)
       .eq("active", true),
     admin
@@ -231,6 +590,99 @@ async function loadTenantCatalog(admin: ReturnType<typeof createClient>, tenantI
     professionals: (professionalsRows ?? []) as ProfessionalItem[],
     links: (linksRows ?? []) as ProfessionalServiceLink[]
   };
+}
+
+async function loadAvailabilityContext(
+  admin: ReturnType<typeof createClient>,
+  tenantId: string,
+  professionalIds: string[]
+): Promise<AvailabilityContext> {
+  const [scheduleResult, unavailabilityResult, appointmentsResult] = await Promise.all([
+    admin
+      .from("professional_schedule_settings")
+      .select("professional_id, timezone, workdays, work_hours")
+      .eq("tenant_id", tenantId),
+    admin
+      .from("professional_unavailability")
+      .select("professional_id, starts_at, ends_at")
+      .eq("tenant_id", tenantId),
+    professionalIds.length > 0
+      ? admin
+          .from("appointments")
+          .select("professional_id, starts_at, ends_at, status")
+          .eq("tenant_id", tenantId)
+          .in("professional_id", professionalIds)
+          .in("status", ACTIVE_APPOINTMENT_STATUSES)
+          .lt("starts_at", new Date(Date.now() + 21 * 24 * 60 * 60 * 1000).toISOString())
+      : Promise.resolve({ data: [], error: null })
+  ]);
+
+  const scheduleByProfessional = new Map<string, ScheduleSettingsRow>();
+  for (const row of (scheduleResult.data ?? []) as ScheduleSettingsRow[]) {
+    scheduleByProfessional.set(row.professional_id, row);
+  }
+
+  const unavailabilityByProfessional = new Map<string, UnavailabilityRow[]>();
+  for (const row of (unavailabilityResult.data ?? []) as UnavailabilityRow[]) {
+    if (!unavailabilityByProfessional.has(row.professional_id)) {
+      unavailabilityByProfessional.set(row.professional_id, []);
+    }
+    unavailabilityByProfessional.get(row.professional_id)?.push(row);
+  }
+
+  const appointmentsByProfessional = new Map<string, AppointmentWindowRow[]>();
+  const appointmentRows = ((appointmentsResult as { data?: unknown[] }).data ?? []) as Array<
+    AppointmentWindowRow & { status?: string }
+  >;
+  for (const row of appointmentRows) {
+    if (row.status && !ACTIVE_APPOINTMENT_STATUSES_SET.has(row.status)) continue;
+    if (!appointmentsByProfessional.has(row.professional_id)) {
+      appointmentsByProfessional.set(row.professional_id, []);
+    }
+    appointmentsByProfessional.get(row.professional_id)?.push({
+      professional_id: row.professional_id,
+      starts_at: row.starts_at,
+      ends_at: row.ends_at
+    });
+  }
+
+  return {
+    scheduleByProfessional,
+    unavailabilityByProfessional,
+    appointmentsByProfessional
+  };
+}
+
+function isProfessionalSlotAvailable(
+  availability: AvailabilityContext,
+  professionalId: string,
+  startsAtIso: string,
+  endsAtIso: string
+) {
+  const schedule = availability.scheduleByProfessional.get(professionalId);
+  if (!isWithinSchedule(schedule, startsAtIso, endsAtIso)) return false;
+
+  if (
+    hasUnavailabilityOverlap(
+      availability.unavailabilityByProfessional.get(professionalId),
+      startsAtIso,
+      endsAtIso
+    )
+  ) {
+    return false;
+  }
+
+  if (
+    hasAppointmentOverlapInMemory(
+      availability.appointmentsByProfessional.get(professionalId),
+      startsAtIso,
+      endsAtIso
+    )
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 function resolveService(catalog: TenantCatalog, decision: IntentDecision): ServiceItem | null {
@@ -297,7 +749,8 @@ async function chooseProfessional(
   startsAtIso: string,
   endsAtIso: string,
   preferredProfessionalId: string | null,
-  anyAvailable: boolean
+  anyAvailable: boolean,
+  availability: AvailabilityContext | null
 ): Promise<ProfessionalItem | null> {
   const linkedIds = new Set(
     catalog.links.filter((link) => link.service_id === serviceId).map((link) => link.professional_id)
@@ -308,13 +761,17 @@ async function chooseProfessional(
     if (!linkedIds.has(preferredProfessionalId)) return null;
     const preferred = catalog.professionals.find((item) => item.id === preferredProfessionalId) ?? null;
     if (!preferred) return null;
-    const conflict = await hasAppointmentConflict(admin, tenantId, preferred.id, startsAtIso, endsAtIso);
+    const conflict = availability
+      ? !isProfessionalSlotAvailable(availability, preferred.id, startsAtIso, endsAtIso)
+      : await hasAppointmentConflict(admin, tenantId, preferred.id, startsAtIso, endsAtIso);
     return conflict ? null : preferred;
   }
 
   const candidates = catalog.professionals.filter((professional) => linkedIds.has(professional.id));
   for (const candidate of candidates) {
-    const conflict = await hasAppointmentConflict(admin, tenantId, candidate.id, startsAtIso, endsAtIso);
+    const conflict = availability
+      ? !isProfessionalSlotAvailable(availability, candidate.id, startsAtIso, endsAtIso)
+      : await hasAppointmentConflict(admin, tenantId, candidate.id, startsAtIso, endsAtIso);
     if (!conflict) return candidate;
   }
 
@@ -331,19 +788,539 @@ function formatDateTimePtBr(iso: string): string {
   return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
 }
 
+function formatDateTimePtBrInTimezone(iso: string, timezone: string): string {
+  const dt = new Date(iso);
+  return new Intl.DateTimeFormat("pt-BR", {
+    timeZone: timezone,
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  }).format(dt);
+}
+
+function getDateTimePartsInTimezone(date: Date, timezone: string) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false
+  });
+  const parts = formatter.formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const part of parts) {
+    if (part.type !== "literal") map[part.type] = part.value;
+  }
+  return {
+    year: Number.parseInt(map.year, 10),
+    month: Number.parseInt(map.month, 10),
+    day: Number.parseInt(map.day, 10),
+    hour: Number.parseInt(map.hour, 10),
+    minute: Number.parseInt(map.minute, 10),
+    second: Number.parseInt(map.second, 10)
+  };
+}
+
+function getTimezoneOffsetMs(date: Date, timezone: string) {
+  const parts = getDateTimePartsInTimezone(date, timezone);
+  const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
+  return asUtc - date.getTime();
+}
+
+function localDateTimeInTimezoneToIso(localValue: string, timezone: string): string | null {
+  const match = localValue.match(
+    /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?$/
+  );
+  if (!match) return null;
+
+  const [, y, m, d, hh, mm, ss = "00"] = match;
+  const year = Number.parseInt(y, 10);
+  const month = Number.parseInt(m, 10);
+  const day = Number.parseInt(d, 10);
+  const hour = Number.parseInt(hh, 10);
+  const minute = Number.parseInt(mm, 10);
+  const second = Number.parseInt(ss, 10);
+
+  if (
+    !Number.isFinite(year) ||
+    !Number.isFinite(month) ||
+    !Number.isFinite(day) ||
+    !Number.isFinite(hour) ||
+    !Number.isFinite(minute) ||
+    !Number.isFinite(second)
+  ) {
+    return null;
+  }
+
+  const baseUtc = Date.UTC(year, month - 1, day, hour, minute, second);
+  let utcMs = baseUtc - getTimezoneOffsetMs(new Date(baseUtc), timezone);
+  utcMs = baseUtc - getTimezoneOffsetMs(new Date(utcMs), timezone);
+  return new Date(utcMs).toISOString();
+}
+
+function reinterpretIsoAsLocalTimezone(isoValue: string, timezone: string): string | null {
+  const dt = new Date(isoValue);
+  if (Number.isNaN(dt.getTime())) return null;
+  const y = dt.getUTCFullYear();
+  const m = String(dt.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(dt.getUTCDate()).padStart(2, "0");
+  const hh = String(dt.getUTCHours()).padStart(2, "0");
+  const mm = String(dt.getUTCMinutes()).padStart(2, "0");
+  return localDateTimeInTimezoneToIso(`${y}-${m}-${d} ${hh}:${mm}:00`, timezone);
+}
+
+function roundUpToNextStep(date: Date, stepMinutes: number): Date {
+  const stepMs = stepMinutes * 60_000;
+  const roundedMs = Math.ceil(date.getTime() / stepMs) * stepMs;
+  return new Date(roundedMs);
+}
+
+type AvailabilityOption = {
+  startsAtIso: string;
+  endsAtIso: string;
+  professional: ProfessionalItem;
+};
+
+type SuggestedOption = {
+  option_index: number;
+  service_id: string;
+  service_name: string;
+  professional_id: string;
+  professional_name: string;
+  starts_at_iso: string;
+  ends_at_iso: string;
+};
+
+type PeriodPreference = "morning" | "afternoon" | "evening" | "late_day" | null;
+type RelativeDayPreference = "today" | "tomorrow" | null;
+type WeekdayPreference = 0 | 1 | 2 | 3 | 4 | 5 | 6 | null;
+
+function parseSelectedOptionIndex(rawText: string): number | null {
+  const normalized = normalizeText(rawText);
+  if (!normalized) return null;
+
+  const strictSingle = normalized.match(/^([1-9])$/);
+  if (strictSingle) return Number(strictSingle[1]);
+
+  const hasOptionKeyword = /(opcao|opção|numero|número|item)/.test(normalized);
+  const keywordNumber = normalized.match(/(?:opcao|opção|numero|número|item)\s*([1-9])/);
+  if (hasOptionKeyword && keywordNumber) {
+    return Number(keywordNumber[1]);
+  }
+
+  if (normalized.length <= 24) {
+    const loose = normalized.match(/\b([1-9])\b/);
+    if (loose) return Number(loose[1]);
+  }
+
+  return null;
+}
+
+function detectPeriodPreference(rawText: string): PeriodPreference {
+  const normalized = normalizeText(rawText);
+  if (!normalized) return null;
+
+  if (
+    normalized.includes("fim do dia") ||
+    normalized.includes("final do dia") ||
+    normalized.includes("fim da tarde") ||
+    normalized.includes("final da tarde") ||
+    normalized.includes("fim de tarde") ||
+    normalized.includes("fim do expediente") ||
+    normalized.includes("mais para o fim do dia")
+  ) {
+    return "late_day";
+  }
+
+  if (
+    normalized.includes("manha") ||
+    normalized.includes("manhã") ||
+    normalized.includes("de manha") ||
+    normalized.includes("de manhã")
+  ) {
+    return "morning";
+  }
+
+  if (normalized.includes("tarde")) {
+    return "afternoon";
+  }
+
+  if (normalized.includes("noite") || normalized.includes("noturno") || normalized.includes("noturna")) {
+    return "evening";
+  }
+
+  return null;
+}
+
+function detectRelativeDayPreference(rawText: string): RelativeDayPreference {
+  const normalized = normalizeText(rawText);
+  if (!normalized) return null;
+  if (normalized.includes("amanha") || normalized.includes("amanhã")) return "tomorrow";
+  if (normalized.includes("hoje")) return "today";
+
+  // "fim do dia" normalmente implica hoje quando o cliente não informa data.
+  if (
+    normalized.includes("fim do dia") ||
+    normalized.includes("final do dia") ||
+    normalized.includes("fim da tarde") ||
+    normalized.includes("final da tarde") ||
+    normalized.includes("fim de tarde") ||
+    normalized.includes("fim do expediente") ||
+    normalized.includes("mais para o fim do dia")
+  ) {
+    return "today";
+  }
+
+  return null;
+}
+
+function hasExplicitDateInText(rawText: string): boolean {
+  const normalized = normalizeText(rawText);
+  if (!normalized) return false;
+  if (/\b\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/.test(normalized)) return true;
+  if (/\b\d{4}[\/-]\d{1,2}[\/-]\d{1,2}\b/.test(normalized)) return true;
+  return false;
+}
+
+function detectWeekdayPreference(rawText: string): WeekdayPreference {
+  const normalized = normalizeText(rawText);
+  if (!normalized) return null;
+
+  if (/\b(dom|domingo)\b/.test(normalized)) return 0;
+  if (/\b(seg|segunda|segunda-feira)\b/.test(normalized)) return 1;
+  if (/\b(ter|terca|terca-feira)\b/.test(normalized)) return 2;
+  if (/\b(qua|quarta|quarta-feira)\b/.test(normalized)) return 3;
+  if (/\b(qui|quinta|quinta-feira)\b/.test(normalized)) return 4;
+  if (/\b(sex|sexta|sexta-feira)\b/.test(normalized)) return 5;
+  if (/\b(sab|sabado)\b/.test(normalized)) return 6;
+
+  return null;
+}
+
+function isWithinPreferredPeriod(isoValue: string, timezone: string, period: PeriodPreference): boolean {
+  if (!period) return true;
+  const date = new Date(isoValue);
+  if (Number.isNaN(date.getTime())) return false;
+  const parts = getDateTimePartsInTimezone(date, timezone);
+  if (!Number.isFinite(parts.hour)) return false;
+  const hour = parts.hour;
+
+  if (period === "morning") return hour >= 5 && hour < 12;
+  if (period === "afternoon") return hour >= 12 && hour < 18;
+  if (period === "evening") return hour >= 18 && hour <= 23;
+  if (period === "late_day") return hour >= 16 && hour <= 23;
+  return true;
+}
+
+function isPreferredAlternativePeriod(isoValue: string, timezone: string, requested: PeriodPreference): boolean {
+  if (!requested) return true;
+  const date = new Date(isoValue);
+  if (Number.isNaN(date.getTime())) return false;
+  const parts = getDateTimePartsInTimezone(date, timezone);
+  if (!Number.isFinite(parts.hour)) return false;
+  const hour = parts.hour;
+
+  // Avoid suggesting "morning" as first alternative for end-of-day requests.
+  if (requested === "late_day" || requested === "evening") {
+    return hour >= 12;
+  }
+  // For afternoon requests, keep options outside afternoon but avoid very early morning first.
+  if (requested === "afternoon") {
+    return hour >= 9;
+  }
+  // For morning requests, afternoon/evening are acceptable alternatives.
+  if (requested === "morning") {
+    return hour >= 12;
+  }
+
+  return true;
+}
+
+function isWithinRelativeDay(isoValue: string, timezone: string, day: RelativeDayPreference): boolean {
+  if (!day) return true;
+  const slotDate = new Date(isoValue);
+  if (Number.isNaN(slotDate.getTime())) return false;
+
+  const now = new Date();
+  const nowParts = getDateTimePartsInTimezone(now, timezone);
+  const slotParts = getDateTimePartsInTimezone(slotDate, timezone);
+  if (
+    !Number.isFinite(nowParts.year) ||
+    !Number.isFinite(nowParts.month) ||
+    !Number.isFinite(nowParts.day) ||
+    !Number.isFinite(slotParts.year) ||
+    !Number.isFinite(slotParts.month) ||
+    !Number.isFinite(slotParts.day)
+  ) {
+    return false;
+  }
+
+  const nowLocalDateMs = Date.UTC(nowParts.year, nowParts.month - 1, nowParts.day);
+  const slotLocalDateMs = Date.UTC(slotParts.year, slotParts.month - 1, slotParts.day);
+  const diffDays = Math.round((slotLocalDateMs - nowLocalDateMs) / (24 * 60 * 60 * 1000));
+  if (day === "today") return diffDays === 0;
+  if (day === "tomorrow") return diffDays === 1;
+  return true;
+}
+
+function isSameLocalDayInTimezone(isoA: string, isoB: string, timezone: string): boolean {
+  const dateA = new Date(isoA);
+  const dateB = new Date(isoB);
+  if (Number.isNaN(dateA.getTime()) || Number.isNaN(dateB.getTime())) return false;
+
+  const a = getDateTimePartsInTimezone(dateA, timezone);
+  const b = getDateTimePartsInTimezone(dateB, timezone);
+  return a.year === b.year && a.month === b.month && a.day === b.day;
+}
+
+function isWeekdayInTimezone(isoValue: string, timezone: string, weekday: WeekdayPreference): boolean {
+  if (weekday === null) return true;
+  const parts = getWeekdayAndMinutesInTimezone(isoValue, timezone);
+  if (!parts) return false;
+  return parts.weekday === weekday;
+}
+
+function normalizeOutgoingPortuguese(text: string): string {
+  if (!text) return text;
+  return text
+    .replaceAll("OlÃ¡", "Olá")
+    .replaceAll("olÃ¡", "olá")
+    .replaceAll("VocÃª", "Você")
+    .replaceAll("vocÃª", "você")
+    .replaceAll("NÃ£o", "Não")
+    .replaceAll("nÃ£o", "não")
+    .replaceAll("horÃ¡rio", "horário")
+    .replaceAll("horÃ¡rios", "horários")
+    .replaceAll("disponÃ­vel", "disponível")
+    .replaceAll("disponÃ­veis", "disponíveis")
+    .replaceAll("opÃ§Ã£o", "opção")
+    .replaceAll("opÃ§Ãµes", "opções")
+    .replaceAll("preferÃªncia", "preferência")
+    .replaceAll("prÃ³xima", "próxima")
+    .replaceAll("prÃ³ximas", "próximas")
+    .replaceAll("perÃ­odo", "período")
+    .replaceAll("perÃ­odos", "períodos")
+    .replaceAll("serviÃ§o", "serviço")
+    .replaceAll("serviÃ§os", "serviços")
+    .replaceAll("manhÃ£", "manhã")
+    .replaceAll("Ã ", "à");
+}
+
+async function loadLatestSuggestedOptions(
+  admin: ReturnType<typeof createClient>,
+  tenantId: string,
+  conversationId: string
+): Promise<SuggestedOption[]> {
+  const { data } = await admin
+    .from("whatsapp_messages")
+    .select("ai_payload")
+    .eq("tenant_id", tenantId)
+    .eq("conversation_id", conversationId)
+    .eq("direction", "outbound")
+    .order("created_at", { ascending: false })
+    .limit(6);
+
+  const rows = (data ?? []) as Array<{ ai_payload?: unknown }>;
+  for (const row of rows) {
+    const payload = row.ai_payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue;
+    const suggested = (payload as Record<string, unknown>).suggested_options;
+    if (!Array.isArray(suggested) || suggested.length === 0) continue;
+
+    const parsed = suggested
+      .map((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+        const value = item as Record<string, unknown>;
+        const optionIndex = Number(value.option_index);
+        const serviceId = toNullableString(value.service_id);
+        const serviceName = toNullableString(value.service_name);
+        const professionalId = toNullableString(value.professional_id);
+        const professionalName = toNullableString(value.professional_name);
+        const startsAtIso = toIsoOrNull(value.starts_at_iso);
+        const endsAtIso = toIsoOrNull(value.ends_at_iso);
+        if (
+          !Number.isInteger(optionIndex) ||
+          optionIndex <= 0 ||
+          !serviceId ||
+          !serviceName ||
+          !professionalId ||
+          !professionalName ||
+          !startsAtIso ||
+          !endsAtIso
+        ) {
+          return null;
+        }
+        return {
+          option_index: optionIndex,
+          service_id: serviceId,
+          service_name: serviceName,
+          professional_id: professionalId,
+          professional_name: professionalName,
+          starts_at_iso: startsAtIso,
+          ends_at_iso: endsAtIso
+        } as SuggestedOption;
+      })
+      .filter((item): item is SuggestedOption => item !== null);
+
+    if (parsed.length > 0) return parsed;
+  }
+
+  return [];
+}
+
+async function inferRescheduleContext(
+  admin: ReturnType<typeof createClient>,
+  tenantId: string,
+  clientId: string,
+  catalog: TenantCatalog
+): Promise<{
+  appointmentId: string;
+  service: ServiceItem | null;
+  professional: ProfessionalItem | null;
+} | null> {
+  const { data } = await admin
+    .from("appointments")
+    .select("id, service_id, professional_id, starts_at")
+    .eq("tenant_id", tenantId)
+    .eq("client_id", clientId)
+    .in("status", ACTIVE_APPOINTMENT_STATUSES)
+    .gte("starts_at", new Date().toISOString())
+    .order("starts_at", { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (!data) return null;
+  const row = data as { id: string; service_id: string | null; professional_id: string | null };
+  const service = row.service_id ? catalog.services.find((item) => item.id === row.service_id) ?? null : null;
+  const professional = row.professional_id
+    ? catalog.professionals.find((item) => item.id === row.professional_id) ?? null
+    : null;
+
+  return {
+    appointmentId: row.id,
+    service,
+    professional
+  };
+}
+
+async function inferRecentDecisionContext(
+  admin: ReturnType<typeof createClient>,
+  tenantId: string,
+  conversationId: string,
+  catalog: TenantCatalog
+): Promise<{
+  service: ServiceItem | null;
+  professional: ProfessionalItem | null;
+} | null> {
+  const { data } = await admin
+    .from("whatsapp_messages")
+    .select("ai_payload")
+    .eq("tenant_id", tenantId)
+    .eq("conversation_id", conversationId)
+    .eq("direction", "outbound")
+    .order("created_at", { ascending: false })
+    .limit(8);
+
+  const rows = (data ?? []) as Array<{ ai_payload?: unknown }>;
+  for (const row of rows) {
+    const payload = row.ai_payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue;
+    const decision = (payload as Record<string, unknown>).decision;
+    if (!decision || typeof decision !== "object" || Array.isArray(decision)) continue;
+    const rec = decision as Record<string, unknown>;
+    const serviceId = toNullableString(rec.service_id);
+    const professionalId = toNullableString(rec.professional_id);
+    const service = serviceId ? catalog.services.find((item) => item.id === serviceId) ?? null : null;
+    const professional = professionalId
+      ? catalog.professionals.find((item) => item.id === professionalId) ?? null
+      : null;
+    if (service || professional) {
+      return { service, professional };
+    }
+  }
+
+  return null;
+}
+
+async function findNextAvailabilityOptions(
+  catalog: TenantCatalog,
+  availability: AvailabilityContext,
+  service: ServiceItem,
+  preferredProfessionalId: string | null,
+  anyAvailable: boolean,
+  maxOptions = 3
+): Promise<AvailabilityOption[]> {
+  const linkedIds = new Set(
+    catalog.links.filter((link) => link.service_id === service.id).map((link) => link.professional_id)
+  );
+  if (linkedIds.size === 0) return [];
+
+  const pool = catalog.professionals.filter((item) => linkedIds.has(item.id));
+  const candidates =
+    preferredProfessionalId && !anyAvailable
+      ? pool.filter((item) => item.id === preferredProfessionalId)
+      : pool;
+  if (candidates.length === 0) return [];
+
+  const durationMin = service.duration_min > 0 ? service.duration_min : 30;
+  const intervalMin = service.interval_min >= 0 ? service.interval_min : 0;
+  const blockMinutes = durationMin + intervalMin;
+
+  const now = new Date();
+  const cursorBase = roundUpToNextStep(new Date(now.getTime() + 30 * 60_000), 30);
+  const options: AvailabilityOption[] = [];
+  const seen = new Set<string>();
+
+  for (let i = 0; i < 21 * 24 * 2 && options.length < maxOptions; i += 1) {
+    const startsAt = new Date(cursorBase.getTime() + i * 30 * 60_000);
+    const endsAt = new Date(startsAt.getTime() + blockMinutes * 60_000);
+    const startsAtIso = startsAt.toISOString();
+    const endsAtIso = endsAt.toISOString();
+
+    for (const professional of candidates) {
+      const available = isProfessionalSlotAvailable(availability, professional.id, startsAtIso, endsAtIso);
+      if (!available) continue;
+
+      const key = `${startsAtIso}-${professional.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      options.push({ startsAtIso, endsAtIso, professional });
+      if (!availability.appointmentsByProfessional.has(professional.id)) {
+        availability.appointmentsByProfessional.set(professional.id, []);
+      }
+      availability.appointmentsByProfessional.get(professional.id)?.push({
+        professional_id: professional.id,
+        starts_at: startsAtIso,
+        ends_at: endsAtIso
+      });
+
+      if (options.length >= maxOptions) break;
+    }
+  }
+
+  return options;
+}
+
 async function createAppointmentFromDecision(
   admin: ReturnType<typeof createClient>,
   tenantId: string,
   clientId: string,
   catalog: TenantCatalog,
-  decision: IntentDecision
+  decision: IntentDecision,
+  availability: AvailabilityContext | null
 ): Promise<AppointmentExecutionResult> {
   const service = resolveService(catalog, decision);
   if (!service) {
     return {
       ok: false,
       message:
-        "Nao consegui identificar o servico. Pode me dizer exatamente qual servico voce quer agendar?"
+        "Não consegui identificar o serviço. Pode me dizer exatamente qual serviço você quer agendar?"
     };
   }
 
@@ -351,40 +1328,69 @@ async function createAppointmentFromDecision(
     return {
       ok: false,
       message:
-        "Perfeito. Me diga a data e horario desejados para eu confirmar seu agendamento."
+        "Perfeito. Me diga a data e o horário desejados para eu confirmar seu agendamento."
     };
   }
 
   const startsAt = new Date(decision.starts_at_iso);
   if (Number.isNaN(startsAt.getTime())) {
-    return { ok: false, message: "Nao consegui entender o horario. Pode enviar novamente?" };
+    return { ok: false, message: "Não consegui entender o horário. Pode enviar novamente?" };
   }
 
-  const durationMin = decision.duration_min && decision.duration_min > 0
-    ? decision.duration_min
-    : service.duration_min;
-
-  const endsAtIso =
-    decision.ends_at_iso ??
-    new Date(startsAt.getTime() + durationMin * 60_000).toISOString();
+  const durationMin = service.duration_min > 0 ? service.duration_min : 30;
+  const intervalMin = service.interval_min >= 0 ? service.interval_min : 0;
 
   const preferredProfessional = resolveProfessional(catalog, decision);
-  const selectedProfessional = await chooseProfessional(
-    admin,
-    tenantId,
-    catalog,
-    service.id,
-    startsAt.toISOString(),
-    endsAtIso,
-    preferredProfessional?.id ?? null,
-    decision.any_available || !preferredProfessional
-  );
+  const defaultTimezone =
+    (preferredProfessional && availability?.scheduleByProfessional.get(preferredProfessional.id)?.timezone) ??
+    "America/Sao_Paulo";
+
+  const trySlots: Array<{ startsAtIso: string; endsAtIso: string }> = [];
+  const originalStartsAtIso = startsAt.toISOString();
+  trySlots.push({
+    startsAtIso: originalStartsAtIso,
+    endsAtIso: new Date(startsAt.getTime() + (durationMin + intervalMin) * 60_000).toISOString()
+  });
+
+  const reinterpretedStartsAtIso = reinterpretIsoAsLocalTimezone(originalStartsAtIso, defaultTimezone);
+  if (reinterpretedStartsAtIso && reinterpretedStartsAtIso !== originalStartsAtIso) {
+    const reinterpretedStartsAt = new Date(reinterpretedStartsAtIso);
+    trySlots.push({
+      startsAtIso: reinterpretedStartsAtIso,
+      endsAtIso: new Date(
+        reinterpretedStartsAt.getTime() + (durationMin + intervalMin) * 60_000
+      ).toISOString()
+    });
+  }
+
+  let selectedProfessional: ProfessionalItem | null = null;
+  let finalStartsAtIso = trySlots[0].startsAtIso;
+  let finalEndsAtIso = trySlots[0].endsAtIso;
+  for (const slot of trySlots) {
+    const candidate = await chooseProfessional(
+      admin,
+      tenantId,
+      catalog,
+      service.id,
+      slot.startsAtIso,
+      slot.endsAtIso,
+      preferredProfessional?.id ?? null,
+      decision.any_available || !preferredProfessional,
+      availability
+    );
+    if (candidate) {
+      selectedProfessional = candidate;
+      finalStartsAtIso = slot.startsAtIso;
+      finalEndsAtIso = slot.endsAtIso;
+      break;
+    }
+  }
 
   if (!selectedProfessional) {
     return {
       ok: false,
       message:
-        "Nao encontrei profissional disponivel nesse horario. Posso buscar a proxima opcao para voce?"
+        "Não encontrei profissional disponível nesse horário. Posso buscar a próxima opção para você?"
     };
   }
 
@@ -396,8 +1402,8 @@ async function createAppointmentFromDecision(
       service_id: service.id,
       specialty_id: service.specialty_id,
       professional_id: selectedProfessional.id,
-      starts_at: startsAt.toISOString(),
-      ends_at: endsAtIso,
+      starts_at: finalStartsAtIso,
+      ends_at: finalEndsAtIso,
       status: "scheduled",
       source: "client_link",
       assigned_at: new Date().toISOString()
@@ -406,12 +1412,15 @@ async function createAppointmentFromDecision(
     .single();
 
   if (error || !inserted) {
-    return { ok: false, message: "Nao consegui confirmar agora. Pode tentar novamente em instantes?" };
+    return { ok: false, message: "Não consegui confirmar agora. Pode tentar novamente em instantes?" };
   }
+
+  const selectedTimezone =
+    availability?.scheduleByProfessional.get(selectedProfessional.id)?.timezone ?? "America/Sao_Paulo";
 
   return {
     ok: true,
-    message: `Agendamento confirmado para ${formatDateTimePtBr(inserted.starts_at)} com ${selectedProfessional.name} (${service.name}).`,
+    message: `Agendamento confirmado para ${formatDateTimePtBrInTimezone(inserted.starts_at, selectedTimezone)} com ${selectedProfessional.name} (${service.name}).`,
     appointmentId: inserted.id,
     startsAtIso: inserted.starts_at,
     professionalName: selectedProfessional.name,
@@ -424,9 +1433,10 @@ async function rescheduleAppointmentFromDecision(
   tenantId: string,
   clientId: string,
   catalog: TenantCatalog,
-  decision: IntentDecision
+  decision: IntentDecision,
+  availability: AvailabilityContext | null
 ): Promise<AppointmentExecutionResult> {
-  const targetQuery = admin
+  const activeTargetQuery = admin
     .from("appointments")
     .select("id, service_id, professional_id, starts_at, ends_at, status")
     .eq("tenant_id", tenantId)
@@ -436,16 +1446,53 @@ async function rescheduleAppointmentFromDecision(
     .limit(1);
 
   const { data: targetRows } = decision.target_appointment_id
-    ? await targetQuery.eq("id", decision.target_appointment_id)
-    : await targetQuery.gte("starts_at", new Date().toISOString());
+    ? await activeTargetQuery.eq("id", decision.target_appointment_id)
+    : await activeTargetQuery.gte("starts_at", new Date().toISOString());
 
   const target = targetRows?.[0];
   if (!target) {
-    return {
-      ok: false,
-      message:
-        "Nao encontrei agendamento ativo para remarcar. Quer que eu crie um novo?"
+    const { data: latestRows } = await admin
+      .from("appointments")
+      .select("id, service_id, professional_id, starts_at, ends_at, status")
+      .eq("tenant_id", tenantId)
+      .eq("client_id", clientId)
+      .order("starts_at", { ascending: false })
+      .limit(1);
+
+    const latest = latestRows?.[0];
+    if (!latest) {
+      return {
+          ok: false,
+          message:
+          "Não encontrei agendamento anterior para remarcar. Quer que eu crie um novo?"
+      };
+    }
+
+    const inferredDecision: IntentDecision = {
+      ...decision,
+      intent: "create_appointment",
+      service_id: decision.service_id ?? latest.service_id ?? null,
+      professional_id: decision.professional_id ?? latest.professional_id ?? null,
+      any_available: decision.any_available || !decision.professional_id
     };
+
+    const createdFromHistory = await createAppointmentFromDecision(
+      admin,
+      tenantId,
+      clientId,
+      catalog,
+      inferredDecision,
+      availability
+    );
+
+    if (createdFromHistory.ok) {
+      return {
+        ...createdFromHistory,
+        message: `Não havia agendamento ativo para remarcar. Criei um novo: ${createdFromHistory.message}`
+      };
+    }
+
+    return createdFromHistory;
   }
 
   const enrichedDecision: IntentDecision = {
@@ -460,7 +1507,8 @@ async function rescheduleAppointmentFromDecision(
     tenantId,
     clientId,
     catalog,
-    enrichedDecision
+    enrichedDecision,
+    availability
   );
   if (!created.ok || !created.appointmentId) return created;
 
@@ -497,14 +1545,16 @@ function buildCatalogPrompt(catalog: TenantCatalog): string {
 
 async function decideIntentWithAI(
   conversationText: string,
-  catalog: TenantCatalog
+  catalog: TenantCatalog,
+  aiConfig: { enabled: boolean; model?: string | null; systemPrompt?: string | null },
+  latestUserText: string,
+  shouldGreet: boolean
 ): Promise<IntentDecision> {
-  const apiKey = Deno.env.get("OPENAI_API_KEY");
-  if (!apiKey) {
+  if (!aiConfig.enabled) {
     return {
       intent: "collect_info",
       confidence: 0,
-      reply_text: "Recebi sua mensagem. Pode me enviar servico e horario desejado?",
+      reply_text: "Recebi sua mensagem. Nosso atendimento vai te responder em instantes.",
       service_id: null,
       service_name: null,
       professional_id: null,
@@ -517,10 +1567,29 @@ async function decideIntentWithAI(
     };
   }
 
-  const model = Deno.env.get("OPENAI_MODEL") ?? "gpt-4.1-mini";
+  const apiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!apiKey) {
+    return {
+      intent: "collect_info",
+      confidence: 0,
+      reply_text: buildCollectInfoReply(latestUserText, catalog, shouldGreet),
+      service_id: null,
+      service_name: null,
+      professional_id: null,
+      professional_name: null,
+      starts_at_iso: null,
+      ends_at_iso: null,
+      duration_min: null,
+      any_available: true,
+      target_appointment_id: null
+    };
+  }
+
+  const model = aiConfig.model ?? Deno.env.get("OPENAI_MODEL") ?? "gpt-4.1-mini";
   const basePrompt =
+    aiConfig.systemPrompt ??
     Deno.env.get("OPENAI_WHATSAPP_SYSTEM_PROMPT") ??
-    "Voce e o assistente virtual da Agenda Profissional. Responda em portugues do Brasil com linguagem natural e objetiva.";
+    "Você é a secretária virtual da Agenda Profissional. Cumprimente o cliente, conduza a conversa com empatia e objetividade, colete preferência de dia/horário e confirme apenas com disponibilidade válida.";
 
   const systemPrompt = `${basePrompt}
 Sua tarefa e retornar SOMENTE um JSON valido com este formato:
@@ -539,9 +1608,13 @@ Sua tarefa e retornar SOMENTE um JSON valido com este formato:
   "target_appointment_id": "uuid|null"
 }
 Regras:
-- Nao invente IDs.
-- Se faltar dado para executar agendamento/remarcacao, use intent=collect_info e reply_text pedindo so o que falta.
-- Use o catalogo abaixo para mapear nomes:
+- Não invente IDs.
+- Atue como secretária do profissional/clínica.
+- Cumprimente apenas na primeira mensagem da conversa. Nas demais, responda direto.
+- Se faltar preferência de dia/horário, pergunte objetivamente qual período ou horário prefere.
+- Se houver opções de horário, apresente em linguagem natural e peça confirmação.
+- Se faltar dado para executar agendamento/remarcação, use intent=collect_info e reply_text pedindo só o que falta.
+- Use o catálogo abaixo para mapear nomes:
 ${buildCatalogPrompt(catalog)}
 Agora atual: ${new Date().toISOString()}`;
 
@@ -566,7 +1639,7 @@ Agora atual: ${new Date().toISOString()}`;
       intent: "collect_info",
       confidence: 0,
       reply_text:
-        "Consegui registrar sua mensagem. Pode me informar servico e horario para seguir com o agendamento?",
+        "Consegui registrar sua mensagem. Pode me informar serviço e horário para seguir com o agendamento?",
       service_id: null,
       service_name: null,
       professional_id: null,
@@ -579,15 +1652,14 @@ Agora atual: ${new Date().toISOString()}`;
     };
   }
 
-  const data = (await response.json()) as { output_text?: string };
-  const outputText = (data.output_text ?? "").trim();
+  const data = (await response.json()) as unknown;
+  const outputText = extractResponseText(data);
   const jsonText = extractJsonObject(outputText);
   if (!jsonText) {
     return {
       intent: "collect_info",
       confidence: 0,
-      reply_text:
-        "Entendi. Pode confirmar servico e horario desejado para eu finalizar?",
+      reply_text: buildCollectInfoReply(latestUserText, catalog, shouldGreet),
       service_id: null,
       service_name: null,
       professional_id: null,
@@ -612,8 +1684,7 @@ Agora atual: ${new Date().toISOString()}`;
     return {
       intent: "collect_info",
       confidence: 0,
-      reply_text:
-        "Perfeito. Me diga servico, data e horario preferidos para eu continuar.",
+      reply_text: buildCollectInfoReply(latestUserText, catalog, shouldGreet),
       service_id: null,
       service_name: null,
       professional_id: null,
@@ -633,13 +1704,15 @@ async function sendWhatsappMessage(
   to: string,
   message: string,
   phoneNumberIdFromWebhook: string | null
-): Promise<string | null> {
+): Promise<{ messageId: string | null; error: string | null }> {
   const accessToken = Deno.env.get("WHATSAPP_ACCESS_TOKEN");
   const defaultPhoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID");
   const apiVersion = Deno.env.get("WHATSAPP_API_VERSION") ?? "v22.0";
 
   const phoneNumberId = phoneNumberIdFromWebhook ?? defaultPhoneNumberId ?? "";
-  if (!accessToken || !phoneNumberId) return null;
+  if (!accessToken || !phoneNumberId) {
+    return { messageId: null, error: "Missing WHATSAPP_ACCESS_TOKEN or WHATSAPP_PHONE_NUMBER_ID" };
+  }
 
   const response = await fetch(
     `https://graph.facebook.com/${apiVersion}/${phoneNumberId}/messages`,
@@ -658,9 +1731,16 @@ async function sendWhatsappMessage(
     }
   );
 
-  if (!response.ok) return null;
+  if (!response.ok) {
+    const payload = await response.text().catch(() => "");
+    const compact = payload.replace(/\s+/g, " ").trim().slice(0, 600);
+    return {
+      messageId: null,
+      error: `Meta send failed (${response.status}): ${compact || "no response body"}`
+    };
+  }
   const data = (await response.json()) as { messages?: Array<{ id?: string }> };
-  return data.messages?.[0]?.id ?? null;
+  return { messageId: data.messages?.[0]?.id ?? null, error: null };
 }
 
 Deno.serve(async (req) => {
@@ -734,10 +1814,12 @@ Deno.serve(async (req) => {
     try {
       const rawPhone = normalizePhone(item.message.from);
       const rawText = sanitizeWhatsappText(item.message.text?.body ?? "");
+      const contactName = resolveClientDisplayName(item.message.contact_name);
       if (!rawPhone || !rawText) continue;
 
-      const tenantId = resolveTenantId(item.phoneNumberId);
-      if (!tenantId) continue;
+      const channelConfig = await resolveTenantChannelConfig(admin, item.phoneNumberId);
+      if (!channelConfig) continue;
+      const tenantId = channelConfig.tenantId;
 
       const { data: existingClient } = await admin
         .from("clients")
@@ -750,16 +1832,31 @@ Deno.serve(async (req) => {
 
       let clientId = existingClient?.id ?? null;
       if (!clientId) {
+        const defaultClientName = contactName ?? "Cliente WhatsApp";
         const { data: createdClient } = await admin
           .from("clients")
           .insert({
             tenant_id: tenantId,
-            full_name: "Cliente WhatsApp",
+            full_name: defaultClientName,
             phone: rawPhone
           })
           .select("id")
           .single();
         clientId = createdClient?.id ?? null;
+      } else if (contactName) {
+        const existingName = (existingClient.full_name ?? "").trim().toLowerCase();
+        const shouldUpdateName =
+          !existingName ||
+          existingName === "cliente whatsapp" ||
+          existingName === "cliente" ||
+          existingName === "novo cliente";
+        if (shouldUpdateName) {
+          await admin
+            .from("clients")
+            .update({ full_name: contactName })
+            .eq("tenant_id", tenantId)
+            .eq("id", clientId);
+        }
       }
       if (!clientId) continue;
 
@@ -800,20 +1897,330 @@ Deno.serve(async (req) => {
         .limit(12);
 
       const history = ((historyRows ?? []) as ConversationMessage[]).reverse();
+      const inboundMessagesCount = history.filter((entry) => entry.direction === "inbound").length;
+      const shouldGreet = inboundMessagesCount <= 1;
       const conversationText = formatConversationForAI(history);
       const catalog = await loadTenantCatalog(admin, tenantId);
-      const decision = await decideIntentWithAI(conversationText, catalog);
+      const availability = await loadAvailabilityContext(
+        admin,
+        tenantId,
+        catalog.professionals.map((item) => item.id)
+      );
+      let suggestedOptionsPayload: SuggestedOption[] | null = null;
+
+      const selectedOptionIndex = parseSelectedOptionIndex(rawText);
+      let decision: IntentDecision;
+      if (selectedOptionIndex !== null) {
+        const latestSuggestedOptions = await loadLatestSuggestedOptions(admin, tenantId, conversationId);
+        const selected = latestSuggestedOptions.find((item) => item.option_index === selectedOptionIndex);
+        if (selected) {
+          decision = {
+            intent: "create_appointment",
+            confidence: 1,
+            reply_text: `Perfeito! Vou confirmar a opcao ${selectedOptionIndex} para voce.`,
+            service_id: selected.service_id,
+            service_name: selected.service_name,
+            professional_id: selected.professional_id,
+            professional_name: selected.professional_name,
+            starts_at_iso: selected.starts_at_iso,
+            ends_at_iso: selected.ends_at_iso,
+            duration_min: null,
+            any_available: false,
+            target_appointment_id: null
+          };
+        } else {
+          decision = await decideIntentWithAI(
+            conversationText,
+            catalog,
+            {
+              enabled: channelConfig.aiEnabled,
+              model: channelConfig.aiModel,
+              systemPrompt: channelConfig.aiSystemPrompt
+            },
+            rawText,
+            shouldGreet
+          );
+        }
+      } else {
+        decision = await decideIntentWithAI(
+          conversationText,
+          catalog,
+          {
+            enabled: channelConfig.aiEnabled,
+            model: channelConfig.aiModel,
+            systemPrompt: channelConfig.aiSystemPrompt
+          },
+          rawText,
+          shouldGreet
+        );
+      }
+
+      if (
+        (looksLikeRescheduleRequest(rawText) || decision.intent === "reschedule_appointment") &&
+        (!decision.service_id || !decision.professional_id || !decision.target_appointment_id)
+      ) {
+        const inferred = await inferRescheduleContext(admin, tenantId, clientId, catalog);
+        if (inferred) {
+          decision = {
+            ...decision,
+            intent: decision.intent === "create_appointment" ? "create_appointment" : "reschedule_appointment",
+            service_id: decision.service_id ?? inferred.service?.id ?? null,
+            service_name: decision.service_name ?? inferred.service?.name ?? null,
+            professional_id: decision.professional_id ?? inferred.professional?.id ?? null,
+            professional_name: decision.professional_name ?? inferred.professional?.name ?? null,
+            target_appointment_id: decision.target_appointment_id ?? inferred.appointmentId
+          };
+        }
+      }
+
+      if (
+        decision.intent === "collect_info" &&
+        decision.starts_at_iso &&
+        (!decision.service_id || !decision.professional_id)
+      ) {
+        const [recentContext, inferredReschedule] = await Promise.all([
+          inferRecentDecisionContext(admin, tenantId, conversationId, catalog),
+          inferRescheduleContext(admin, tenantId, clientId, catalog)
+        ]);
+
+        const serviceFromContext =
+          recentContext?.service ?? inferredReschedule?.service ?? null;
+        const professionalFromContext =
+          recentContext?.professional ?? inferredReschedule?.professional ?? null;
+
+        if (serviceFromContext) {
+          decision = {
+            ...decision,
+            intent: "reschedule_appointment",
+            service_id: decision.service_id ?? serviceFromContext.id,
+            service_name: decision.service_name ?? serviceFromContext.name,
+            professional_id: decision.professional_id ?? professionalFromContext?.id ?? null,
+            professional_name: decision.professional_name ?? professionalFromContext?.name ?? null,
+            target_appointment_id:
+              decision.target_appointment_id ?? inferredReschedule?.appointmentId ?? null
+          };
+        }
+      }
 
       let finalReply = decision.reply_text;
       let actionResult: AppointmentExecutionResult | null = null;
 
-      if (decision.confidence >= 0.6 && decision.intent === "create_appointment") {
+      // If user provides an explicit date/time and asks to change schedule, try immediate execution first.
+      if (decision.intent === "collect_info" && decision.starts_at_iso) {
+        const inferredService = resolveService(catalog, decision);
+        if (inferredService) {
+          const inferredIntent: IntentDecision = {
+            ...decision,
+            intent: looksLikeRescheduleRequest(rawText) ? "reschedule_appointment" : "create_appointment",
+            service_id: decision.service_id ?? inferredService.id,
+            service_name: decision.service_name ?? inferredService.name,
+            confidence: 1
+          };
+
+          actionResult =
+            inferredIntent.intent === "reschedule_appointment"
+              ? await rescheduleAppointmentFromDecision(
+                  admin,
+                  tenantId,
+                  clientId,
+                  catalog,
+                  inferredIntent,
+                  availability
+                )
+              : await createAppointmentFromDecision(
+                  admin,
+                  tenantId,
+                  clientId,
+                  catalog,
+                  inferredIntent,
+                  availability
+                );
+
+          if (actionResult.ok) {
+            finalReply = actionResult.message;
+          } else {
+            finalReply = actionResult.message;
+          }
+        }
+      }
+
+      if (!actionResult && decision.intent === "collect_info" && decision.confidence >= 0.35) {
+        const service = resolveService(catalog, decision);
+        const preferredProfessional = resolveProfessional(catalog, decision);
+
+        if (service && !decision.starts_at_iso) {
+          const periodPreference = detectPeriodPreference(rawText);
+          const dayPreference = detectRelativeDayPreference(rawText);
+          const weekdayPreference = detectWeekdayPreference(rawText);
+          const optionSearchLimit = periodPreference !== null ? 240 : 48;
+
+          const options = await findNextAvailabilityOptions(
+            catalog,
+            availability,
+            service,
+            preferredProfessional?.id ?? null,
+            decision.any_available || !preferredProfessional,
+            optionSearchLimit
+          );
+
+          const keepConversationDay =
+            periodPreference !== null &&
+            dayPreference === null &&
+            weekdayPreference === null &&
+            !hasExplicitDateInText(rawText);
+
+          let anchorDayIso: string | null = null;
+          if (keepConversationDay) {
+            const latestSuggestedOptions = await loadLatestSuggestedOptions(admin, tenantId, conversationId);
+            anchorDayIso = latestSuggestedOptions[0]?.starts_at_iso ?? null;
+          }
+
+          const baseByDay = options.filter((item) => {
+            const schedule = availability.scheduleByProfessional.get(item.professional.id);
+            const timezone = schedule?.timezone || "America/Sao_Paulo";
+            if (weekdayPreference !== null) {
+              return isWeekdayInTimezone(item.startsAtIso, timezone, weekdayPreference);
+            }
+            if (dayPreference !== null) {
+              return isWithinRelativeDay(item.startsAtIso, timezone, dayPreference);
+            }
+            if (anchorDayIso) {
+              return isSameLocalDayInTimezone(item.startsAtIso, anchorDayIso, timezone);
+            }
+            return true;
+          });
+
+          const filteredByPeriod = baseByDay.filter((item) => {
+            if (periodPreference === null) return true;
+            const schedule = availability.scheduleByProfessional.get(item.professional.id);
+            const timezone = schedule?.timezone || "America/Sao_Paulo";
+            return isWithinPreferredPeriod(item.startsAtIso, timezone, periodPreference);
+          });
+
+          const periodOnlyGlobal = options.filter((item) => {
+            if (periodPreference === null) return false;
+            const schedule = availability.scheduleByProfessional.get(item.professional.id);
+            const timezone = schedule?.timezone || "America/Sao_Paulo";
+            return isWithinPreferredPeriod(item.startsAtIso, timezone, periodPreference);
+          });
+
+          const optionsByPeriod = filteredByPeriod.slice(0, 3);
+          const fallbackSource = baseByDay.length > 0 ? baseByDay : options;
+          const periodAwareFallback =
+            periodPreference === null
+              ? fallbackSource
+              : fallbackSource.filter((item) => {
+                  const schedule = availability.scheduleByProfessional.get(item.professional.id);
+                  const timezone = schedule?.timezone || "America/Sao_Paulo";
+                  return isPreferredAlternativePeriod(item.startsAtIso, timezone, periodPreference);
+                });
+          const fallbackOptions = (periodAwareFallback.length > 0 ? periodAwareFallback : fallbackSource).slice(0, 3);
+
+          if (optionsByPeriod.length > 0) {
+            const lines = optionsByPeriod.map((item, index) => {
+              const schedule = availability.scheduleByProfessional.get(item.professional.id);
+              const timezone = schedule?.timezone || "America/Sao_Paulo";
+              const dateLabel = formatDateTimePtBrInTimezone(item.startsAtIso, timezone);
+              return `${index + 1}) ${dateLabel} com ${item.professional.name}`;
+            });
+            suggestedOptionsPayload = optionsByPeriod.map((item, index) => ({
+              option_index: index + 1,
+              service_id: service.id,
+              service_name: service.name,
+              professional_id: item.professional.id,
+              professional_name: item.professional.name,
+              starts_at_iso: item.startsAtIso,
+              ends_at_iso: item.endsAtIso
+            }));
+
+            const intro = shouldGreet ? "Olá! " : "";
+            finalReply =
+              `${intro}Para ${service.name}, encontrei estes horários disponíveis:\n` +
+              `${lines.join("\n")}\n` +
+              "Você prefere alguma dessas opções? Se quiser, me diga outro dia e horário de preferência.";
+          } else if (periodPreference !== null && periodOnlyGlobal.length > 0) {
+            const intro = shouldGreet ? "Olá! " : "";
+            const periodLabel =
+              periodPreference === "morning"
+                ? "pela manhã"
+                : periodPreference === "afternoon"
+                  ? "à tarde"
+                  : periodPreference === "late_day"
+                    ? "no fim do dia"
+                    : "à noite";
+            const periodLines = periodOnlyGlobal.slice(0, 3).map((item, index) => {
+              const schedule = availability.scheduleByProfessional.get(item.professional.id);
+              const timezone = schedule?.timezone || "America/Sao_Paulo";
+              const dateLabel = formatDateTimePtBrInTimezone(item.startsAtIso, timezone);
+              return `${index + 1}) ${dateLabel} com ${item.professional.name}`;
+            });
+            suggestedOptionsPayload = periodOnlyGlobal.slice(0, 3).map((item, index) => ({
+              option_index: index + 1,
+              service_id: service.id,
+              service_name: service.name,
+              professional_id: item.professional.id,
+              professional_name: item.professional.name,
+              starts_at_iso: item.startsAtIso,
+              ends_at_iso: item.endsAtIso
+            }));
+            finalReply =
+              `${intro}No dia em contexto não encontrei horários disponíveis ${periodLabel} para ${service.name}. ` +
+              `Aqui estão as próximas opções ${periodLabel}:\n` +
+              `${periodLines.join("\n")}`;
+          } else if (periodPreference !== null && fallbackOptions.length > 0) {
+            const intro = shouldGreet ? "Olá! " : "";
+            const periodLabel =
+              periodPreference === "morning"
+                ? "pela manhã"
+                : periodPreference === "afternoon"
+                  ? "à tarde"
+                  : periodPreference === "late_day"
+                    ? "no fim do dia"
+                    : "à noite";
+            const alternativeLines = fallbackOptions.map((item, index) => {
+              const schedule = availability.scheduleByProfessional.get(item.professional.id);
+              const timezone = schedule?.timezone || "America/Sao_Paulo";
+              const dateLabel = formatDateTimePtBrInTimezone(item.startsAtIso, timezone);
+              return `${index + 1}) ${dateLabel} com ${item.professional.name}`;
+            });
+            suggestedOptionsPayload = fallbackOptions.map((item, index) => ({
+              option_index: index + 1,
+              service_id: service.id,
+              service_name: service.name,
+              professional_id: item.professional.id,
+              professional_name: item.professional.name,
+              starts_at_iso: item.startsAtIso,
+              ends_at_iso: item.endsAtIso
+            }));
+            finalReply =
+              `${intro}No momento não encontrei horários disponíveis ${periodLabel} para ${service.name}. ` +
+              "Posso te sugerir as próximas opções em outros períodos:\n" +
+              `${alternativeLines.join("\n")}`;
+          } else {
+            const intro = shouldGreet ? "Olá! " : "";
+            finalReply =
+              `${intro}No momento não encontrei disponibilidade próxima para ${service.name}. ` +
+              "Me diga seu dia/horário de preferência que eu continuo buscando.";
+          }
+        } else {
+          finalReply = shouldPreserveAiCollectReply(decision)
+            ? decision.reply_text
+            : buildCollectInfoReply(rawText, catalog, shouldGreet);
+        }
+      } else if (!actionResult && decision.intent === "collect_info") {
+        finalReply = shouldPreserveAiCollectReply(decision)
+          ? decision.reply_text
+          : buildCollectInfoReply(rawText, catalog, shouldGreet);
+      }
+
+      if (!actionResult && decision.confidence >= 0.6 && decision.intent === "create_appointment") {
         actionResult = await createAppointmentFromDecision(
           admin,
           tenantId,
           clientId,
           catalog,
-          decision
+          decision,
+          availability
         );
         if (actionResult.ok) {
           finalReply = actionResult.message;
@@ -822,13 +2229,14 @@ Deno.serve(async (req) => {
         }
       }
 
-      if (decision.confidence >= 0.6 && decision.intent === "reschedule_appointment") {
+      if (!actionResult && decision.confidence >= 0.6 && decision.intent === "reschedule_appointment") {
         actionResult = await rescheduleAppointmentFromDecision(
           admin,
           tenantId,
           clientId,
           catalog,
-          decision
+          decision,
+          availability
         );
         if (actionResult.ok) {
           finalReply = actionResult.message;
@@ -837,10 +2245,12 @@ Deno.serve(async (req) => {
         }
       }
 
-      const providerReplyMessageId = await sendWhatsappMessage(
+      finalReply = normalizeOutgoingPortuguese(finalReply);
+
+      const delivery = await sendWhatsappMessage(
         rawPhone,
         finalReply,
-        item.phoneNumberId
+        channelConfig.outboundPhoneNumberId ?? item.phoneNumberId
       );
 
       await admin.from("whatsapp_messages").insert({
@@ -848,13 +2258,15 @@ Deno.serve(async (req) => {
         conversation_id: conversationId,
         client_id: clientId,
         direction: "outbound",
-        provider_message_id: providerReplyMessageId,
+        provider_message_id: delivery.messageId,
         message_text: finalReply,
         ai_payload: {
-          model: Deno.env.get("OPENAI_MODEL") ?? "gpt-4.1-mini",
+          model: channelConfig.aiModel ?? Deno.env.get("OPENAI_MODEL") ?? "gpt-4.1-mini",
           source: "openai-responses",
           decision,
-          action_result: actionResult
+          action_result: actionResult,
+          suggested_options: suggestedOptionsPayload,
+          delivery_error: delivery.error
         }
       });
 
@@ -870,3 +2282,8 @@ Deno.serve(async (req) => {
     headers: jsonHeaders
   });
 });
+
+
+
+
+

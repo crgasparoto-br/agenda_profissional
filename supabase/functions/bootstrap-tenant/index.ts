@@ -2,10 +2,20 @@ import { createClient } from "npm:@supabase/supabase-js@2.49.1";
 import { BootstrapTenantInputSchema } from "../_shared/schemas.ts";
 
 const jsonHeaders = { "Content-Type": "application/json" };
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS"
+};
+const responseHeaders = { ...jsonHeaders, ...corsHeaders };
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: responseHeaders });
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? Deno.env.get("APP_SUPABASE_URL");
@@ -14,12 +24,12 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? Deno.env.get("APP_SUPABASE_SERVICE_ROLE_KEY");
 
   if (!supabaseUrl || !anonKey || !serviceRoleKey) {
-    return new Response(JSON.stringify({ error: "Missing Supabase env" }), { status: 500, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Missing Supabase env" }), { status: 500, headers: responseHeaders });
   }
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
-    return new Response(JSON.stringify({ error: "Missing Authorization header" }), { status: 401, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Missing Authorization header" }), { status: 401, headers: responseHeaders });
   }
 
   const userClient = createClient(supabaseUrl, anonKey, {
@@ -32,7 +42,7 @@ Deno.serve(async (req) => {
   } = await userClient.auth.getUser();
 
   if (userError || !user) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: responseHeaders });
   }
 
   const body = await req.json().catch(() => null);
@@ -40,7 +50,7 @@ Deno.serve(async (req) => {
   if (!parsed.success) {
     return new Response(JSON.stringify({ error: "Invalid payload", details: parsed.error.flatten() }), {
       status: 400,
-      headers: jsonHeaders
+      headers: responseHeaders
     });
   }
 
@@ -53,7 +63,7 @@ Deno.serve(async (req) => {
     .maybeSingle();
 
   if (profileLookupError) {
-    return new Response(JSON.stringify({ error: "Failed to inspect profile" }), { status: 500, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Failed to inspect profile" }), { status: 500, headers: responseHeaders });
   }
 
   if (existingProfile) {
@@ -71,7 +81,7 @@ Deno.serve(async (req) => {
         tenant_id: existingProfile.tenant_id,
         professional_id: existingProfessional?.id ?? null
       }),
-      { status: 200, headers: jsonHeaders }
+      { status: 200, headers: responseHeaders }
     );
   }
 
@@ -84,7 +94,7 @@ Deno.serve(async (req) => {
     .single();
 
   if (tenantError || !tenant) {
-    return new Response(JSON.stringify({ error: "Failed to create tenant" }), { status: 500, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Failed to create tenant" }), { status: 500, headers: responseHeaders });
   }
 
   const { error: profileInsertError } = await adminClient.from("profiles").insert({
@@ -96,7 +106,7 @@ Deno.serve(async (req) => {
   });
 
   if (profileInsertError) {
-    return new Response(JSON.stringify({ error: "Failed to create profile" }), { status: 500, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Failed to create profile" }), { status: 500, headers: responseHeaders });
   }
 
   const { data: professional, error: professionalError } = await adminClient
@@ -106,7 +116,7 @@ Deno.serve(async (req) => {
     .single();
 
   if (professionalError || !professional) {
-    return new Response(JSON.stringify({ error: "Failed to create professional" }), { status: 500, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Failed to create professional" }), { status: 500, headers: responseHeaders });
   }
 
   const { error: scheduleError } = await adminClient.from("professional_schedule_settings").insert({
@@ -119,20 +129,18 @@ Deno.serve(async (req) => {
       end: "18:00",
       lunch_break: { enabled: false, start: "12:00", end: "13:00" },
       snack_break: { enabled: false, start: "16:00", end: "16:15" }
-    },
-    slot_min: 30,
-    buffer_min: 0
+    }
   });
 
   if (scheduleError) {
     return new Response(JSON.stringify({ error: "Failed to create schedule settings" }), {
       status: 500,
-      headers: jsonHeaders
+      headers: responseHeaders
     });
   }
 
   return new Response(
     JSON.stringify({ ok: true, already_initialized: false, tenant_id: tenant.id, professional_id: professional.id }),
-    { status: 200, headers: jsonHeaders }
+    { status: 200, headers: responseHeaders }
   );
 });

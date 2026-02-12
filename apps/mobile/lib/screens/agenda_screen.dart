@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:mobile/theme/app_theme.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -19,14 +19,20 @@ class AgendaScreen extends StatefulWidget {
 class _AgendaScreenState extends State<AgendaScreen> {
   final _catalogService = CatalogService();
   final _appointmentService = AppointmentService();
+
   bool _loading = false;
   String? _error;
+
   List<AppointmentItem> _appointments = [];
   List<OptionItem> _professionals = [];
   Map<String, String> _timezoneByProfessional = {};
+  Map<String, ProfessionalScheduleSettings> _scheduleByProfessional = {};
+  Map<String, int> _slotMinutesByProfessional = {};
+
   DateTime _selectedDate = DateTime.now();
   AgendaViewMode _viewMode = AgendaViewMode.day;
   String? _selectedProfessionalId;
+  String _selectedStatus = '';
 
   String _formatTime(DateTime utcDateTime, String timezone) {
     final location = _resolveLocation(timezone);
@@ -44,7 +50,45 @@ class _AgendaScreenState extends State<AgendaScreen> {
     }
   }
 
-  ({Color background, Color border, Color text, String label}) _statusVisual(String status) {
+  int? _parseMinutes(String value) {
+    final parts = value.split(':');
+    if (parts.length != 2) return null;
+    final hh = int.tryParse(parts[0]);
+    final mm = int.tryParse(parts[1]);
+    if (hh == null || mm == null) return null;
+    return hh * 60 + mm;
+  }
+
+  List<int> _parseWorkdays(dynamic raw) {
+    if (raw is! List) return [1, 2, 3, 4, 5];
+    final values = raw
+        .map((item) =>
+            item is num ? item.toInt() : int.tryParse(item.toString()) ?? -1)
+        .where((item) => item >= 0 && item <= 6)
+        .toList();
+    return values.isNotEmpty ? values : [1, 2, 3, 4, 5];
+  }
+
+  ({bool enabled, String start, String end}) _parseBreakConfig(
+    dynamic raw,
+    String fallbackStart,
+    String fallbackEnd,
+  ) {
+    if (raw is! Map<String, dynamic>) {
+      return (enabled: false, start: fallbackStart, end: fallbackEnd);
+    }
+    final hasLegacyWindow = !raw.containsKey('enabled') &&
+        raw['start'] is String &&
+        raw['end'] is String;
+    return (
+      enabled: raw['enabled'] == true || hasLegacyWindow,
+      start: raw['start'] is String ? raw['start'] as String : fallbackStart,
+      end: raw['end'] is String ? raw['end'] as String : fallbackEnd,
+    );
+  }
+
+  ({Color background, Color border, Color text, String label}) _statusVisual(
+      String status) {
     switch (status.toLowerCase()) {
       case 'confirmed':
         return (
@@ -91,6 +135,160 @@ class _AgendaScreenState extends State<AgendaScreen> {
     }
   }
 
+  ({DateTime start, DateTime end}) _currentRange() {
+    final anchor =
+        DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+    if (_viewMode == AgendaViewMode.day) {
+      return (start: anchor, end: anchor.add(const Duration(days: 1)));
+    }
+    if (_viewMode == AgendaViewMode.week) {
+      final monday = anchor.subtract(Duration(days: anchor.weekday - 1));
+      return (start: monday, end: monday.add(const Duration(days: 7)));
+    }
+    final monthStart = DateTime(anchor.year, anchor.month, 1);
+    final nextMonth = DateTime(anchor.year, anchor.month + 1, 1);
+    return (start: monthStart, end: nextMonth);
+  }
+
+  List<DateTime> _calendarDays() {
+    if (_viewMode == AgendaViewMode.day) return const [];
+    final anchor =
+        DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+
+    if (_viewMode == AgendaViewMode.week) {
+      final monday = anchor.subtract(Duration(days: anchor.weekday - 1));
+      return List.generate(7, (index) => monday.add(Duration(days: index)));
+    }
+
+    final monthStart = DateTime(anchor.year, anchor.month, 1);
+    final monthEnd = DateTime(anchor.year, anchor.month + 1, 0);
+    final start = monthStart.subtract(Duration(days: monthStart.weekday - 1));
+    final daysToAdd = (7 - monthEnd.weekday) % 7;
+    final end = monthEnd.add(Duration(days: daysToAdd));
+
+    final days = <DateTime>[];
+    var cursor = start;
+    while (!cursor.isAfter(end)) {
+      days.add(cursor);
+      cursor = cursor.add(const Duration(days: 1));
+    }
+    return days;
+  }
+
+  String _dateKey(DateTime date) {
+    final yyyy = date.year.toString().padLeft(4, '0');
+    final mm = date.month.toString().padLeft(2, '0');
+    final dd = date.day.toString().padLeft(2, '0');
+    return '$yyyy-$mm-$dd';
+  }
+
+  String _dateKeyInTimezone(DateTime utcDate, String timezone) {
+    final local =
+        tz.TZDateTime.from(utcDate.toUtc(), _resolveLocation(timezone));
+    final yyyy = local.year.toString().padLeft(4, '0');
+    final mm = local.month.toString().padLeft(2, '0');
+    final dd = local.day.toString().padLeft(2, '0');
+    return '$yyyy-$mm-$dd';
+  }
+
+  int _weekdayIndex0to6(DateTime date) {
+    return date.weekday % 7;
+  }
+
+  List<AppointmentItem> get _filteredAppointments {
+    if (_selectedStatus.isEmpty) return _appointments;
+    return _appointments
+        .where((item) => item.status.toLowerCase() == _selectedStatus)
+        .toList();
+  }
+
+  Map<String, ({int occupied, int free})> _dailyStats() {
+    final days = _calendarDays();
+    final occupiedByDay = <String, int>{};
+    final activeStatuses = {'scheduled', 'confirmed', 'pending'};
+
+    for (final item in _appointments) {
+      final normalizedStatus = item.status.toLowerCase();
+      if (_selectedStatus.isNotEmpty) {
+        if (normalizedStatus != _selectedStatus) continue;
+      } else if (!activeStatuses.contains(normalizedStatus)) {
+        continue;
+      }
+      final schedule = _scheduleByProfessional[item.professionalId];
+      final timezone = schedule?.timezone ??
+          _timezoneByProfessional[item.professionalId] ??
+          'America/Sao_Paulo';
+      final key = _dateKeyInTimezone(item.startsAt, timezone);
+      occupiedByDay[key] = (occupiedByDay[key] ?? 0) + 1;
+    }
+
+    final activeProfessionalIds = _selectedProfessionalId != null
+        ? <String>[_selectedProfessionalId!]
+        : _professionals.map((item) => item.id).toList();
+    final stats = <String, ({int occupied, int free})>{};
+
+    for (final day in days) {
+      final key = _dateKey(day);
+      final weekday = _weekdayIndex0to6(day);
+      var totalCapacitySlots = 0;
+
+      for (final professionalId in activeProfessionalIds) {
+        final schedule = _scheduleByProfessional[professionalId];
+        final workdays = _parseWorkdays(schedule?.workdays);
+        if (!workdays.contains(weekday)) continue;
+
+        final workHours = schedule?.workHours is Map<String, dynamic>
+            ? schedule!.workHours as Map<String, dynamic>
+            : <String, dynamic>{};
+        final overrides = workHours['daily_overrides'] is Map<String, dynamic>
+            ? workHours['daily_overrides'] as Map<String, dynamic>
+            : <String, dynamic>{};
+        final dayRule = overrides['$weekday'] is Map<String, dynamic>
+            ? overrides['$weekday'] as Map<String, dynamic>
+            : workHours;
+
+        final start = _parseMinutes(
+            dayRule['start'] is String ? dayRule['start'] as String : '09:00');
+        final end = _parseMinutes(
+            dayRule['end'] is String ? dayRule['end'] as String : '18:00');
+        if (start == null || end == null || end <= start) continue;
+
+        var minutes = end - start;
+        final lunch =
+            _parseBreakConfig(dayRule['lunch_break'], '12:00', '13:00');
+        if (lunch.enabled) {
+          final lunchStart = _parseMinutes(lunch.start);
+          final lunchEnd = _parseMinutes(lunch.end);
+          if (lunchStart != null && lunchEnd != null && lunchEnd > lunchStart) {
+            minutes -= (lunchEnd - lunchStart);
+          }
+        }
+
+        final pause =
+            _parseBreakConfig(dayRule['snack_break'], '16:00', '16:15');
+        if (pause.enabled) {
+          final pauseStart = _parseMinutes(pause.start);
+          final pauseEnd = _parseMinutes(pause.end);
+          if (pauseStart != null && pauseEnd != null && pauseEnd > pauseStart) {
+            minutes -= (pauseEnd - pauseStart);
+          }
+        }
+
+        final slotMinutes =
+            (_slotMinutesByProfessional[professionalId] ?? 30).clamp(1, 1440);
+        totalCapacitySlots += (minutes.clamp(0, 24 * 60) / slotMinutes).floor();
+      }
+
+      final occupied = occupiedByDay[key] ?? 0;
+      stats[key] = (
+        occupied: occupied,
+        free: (totalCapacitySlots - occupied).clamp(0, 10000)
+      );
+    }
+
+    return stats;
+  }
+
   Future<void> _loadAppointments() async {
     setState(() {
       _loading = true;
@@ -104,11 +302,25 @@ class _AgendaScreenState extends State<AgendaScreen> {
         end: range.end,
         professionalId: _selectedProfessionalId,
       );
-      final professionalIds = items.map((item) => item.professionalId).toSet().toList();
-      final timezoneByProfessional = await _appointmentService.getProfessionalTimezones(professionalIds);
+
+      final activeProfessionalIds = _selectedProfessionalId != null
+          ? <String>[_selectedProfessionalId!]
+          : _professionals.map((item) => item.id).toList();
+
+      final scheduleByProfessional = await _appointmentService
+          .getProfessionalScheduleSettings(activeProfessionalIds);
+      final slotMinutesByProfessional = await _appointmentService
+          .getProfessionalSlotMinutes(activeProfessionalIds);
+      final timezoneByProfessional = <String, String>{
+        for (final entry in scheduleByProfessional.entries)
+          entry.key: entry.value.timezone,
+      };
+
       setState(() {
         _appointments = items;
         _timezoneByProfessional = timezoneByProfessional;
+        _scheduleByProfessional = scheduleByProfessional;
+        _slotMinutesByProfessional = slotMinutesByProfessional;
       });
     } catch (_) {
       setState(() => _error = 'Erro ao carregar agenda');
@@ -117,17 +329,17 @@ class _AgendaScreenState extends State<AgendaScreen> {
     }
   }
 
-  @override
-  void initState() {
-    super.initState();
-    _loadProfessionals();
-    _loadAppointments();
-  }
-
   Future<void> _loadProfessionals() async {
     final professionals = await _catalogService.listProfessionals();
     if (!mounted) return;
     setState(() => _professionals = professionals);
+    await _loadAppointments();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfessionals();
   }
 
   String _formatShortDate(DateTime value) {
@@ -137,19 +349,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
     return '$dd/$mm/$yyyy';
   }
 
-  ({DateTime start, DateTime end}) _currentRange() {
-    final anchor = DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
-    if (_viewMode == AgendaViewMode.day) {
-      return (start: anchor, end: anchor.add(const Duration(days: 1)));
-    }
-    if (_viewMode == AgendaViewMode.week) {
-      final weekday = anchor.weekday; // 1..7
-      final monday = anchor.subtract(Duration(days: weekday - 1));
-      return (start: monday, end: monday.add(const Duration(days: 7)));
-    }
-    final monthStart = DateTime(anchor.year, anchor.month, 1);
-    final nextMonth = DateTime(anchor.year, anchor.month + 1, 1);
-    return (start: monthStart, end: nextMonth);
+  String _dayHeader(DateTime day) {
+    const names = ['Dom.', 'Seg.', 'Ter.', 'Qua.', 'Qui.', 'Sex.', 'Sab.'];
+    return '${names[_weekdayIndex0to6(day)]} ${day.day}';
   }
 
   Future<void> _pickAgendaDate() async {
@@ -166,7 +368,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
 
   Future<void> _shiftAgendaDate(int days) async {
     if (_viewMode == AgendaViewMode.month) {
-      setState(() => _selectedDate = DateTime(_selectedDate.year, _selectedDate.month + days, _selectedDate.day));
+      setState(() => _selectedDate = DateTime(
+          _selectedDate.year, _selectedDate.month + days, _selectedDate.day));
     } else {
       setState(() => _selectedDate = _selectedDate.add(Duration(days: days)));
     }
@@ -190,6 +393,143 @@ class _AgendaScreenState extends State<AgendaScreen> {
     return 'Proximo mes';
   }
 
+  Future<void> _openDay(DateTime day) async {
+    setState(() {
+      _selectedDate = DateTime(day.year, day.month, day.day);
+      _viewMode = AgendaViewMode.day;
+    });
+    await _loadAppointments();
+  }
+
+  Widget _buildCalendarView() {
+    final days = _calendarDays();
+    final stats = _dailyStats();
+    final currentMonth = _selectedDate.month;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SizedBox(
+              width: 7 * 120,
+              child: GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: days.length,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 7,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                  childAspectRatio: 1.15,
+                ),
+                itemBuilder: (_, index) {
+                  final day = days[index];
+                  final key = _dateKey(day);
+                  final dayStats = stats[key] ?? (occupied: 0, free: 0);
+                  final isCurrentMonth = day.month == currentMonth;
+                  final isSelected = _dateKey(_selectedDate) == key;
+                  final isEmpty = dayStats.occupied == 0;
+                  final isFull = dayStats.occupied > 0 && dayStats.free == 0;
+
+                  Color bg = Colors.white;
+                  if (isEmpty) bg = AppColors.danger.withValues(alpha: 0.10);
+                  if (isFull) bg = AppColors.secondary.withValues(alpha: 0.10);
+                  if (!isCurrentMonth && _viewMode == AgendaViewMode.month) {
+                    bg = bg.withValues(alpha: 0.55);
+                  }
+
+                  return InkWell(
+                    onTap: () => _openDay(day),
+                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: bg,
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                        border: Border.all(
+                          color: isSelected
+                              ? AppColors.primary
+                              : const Color(0xFFD7DDE4),
+                          width: isSelected ? 1.5 : 1,
+                        ),
+                      ),
+                      padding: const EdgeInsets.all(8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _dayHeader(day),
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF66717F),
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                          const Spacer(),
+                          Text('Ocupados: ${dayStats.occupied}',
+                              style: Theme.of(context).textTheme.bodySmall),
+                          Text('Livres: ${dayStats.free}',
+                              style: Theme.of(context).textTheme.bodySmall),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDayList() {
+    return Expanded(
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        itemBuilder: (_, index) {
+          final filteredAppointments = _filteredAppointments;
+          final item = filteredAppointments[index];
+          final status = _statusVisual(item.status);
+          final timezone = _timezoneByProfessional[item.professionalId] ??
+              'America/Sao_Paulo';
+
+          return Card(
+            child: ListTile(
+              title: Text('${item.serviceName} - ${item.clientName}'),
+              subtitle: Text(
+                '${_formatTime(item.startsAt, timezone)} - ${_formatTime(item.endsAt, timezone)} (${item.professionalName})',
+              ),
+              trailing: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: status.background,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: status.border),
+                ),
+                child: Text(
+                  status.label,
+                  style: TextStyle(
+                    color: status.text,
+                    fontWeight: FontWeight.w500,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
+        separatorBuilder: (_, __) => const SizedBox(height: 8),
+        itemCount: _filteredAppointments.length,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -206,7 +546,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
             icon: const Icon(Icons.refresh),
           ),
           IconButton(
-            onPressed: () => Navigator.pushNamed(context, '/appointments/new').then((_) => _loadAppointments()),
+            onPressed: () => Navigator.pushNamed(context, '/appointments/new')
+                .then((_) => _loadAppointments()),
             icon: const Icon(Icons.add),
           ),
         ],
@@ -231,7 +572,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
                             children: [
                               DropdownButtonFormField<String?>(
                                 initialValue: _selectedProfessionalId,
-                                decoration: const InputDecoration(labelText: 'Profissional'),
+                                decoration: const InputDecoration(
+                                    labelText: 'Profissional'),
                                 items: [
                                   const DropdownMenuItem<String?>(
                                     value: null,
@@ -245,24 +587,30 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                   ),
                                 ],
                                 onChanged: (value) async {
-                                  setState(() => _selectedProfessionalId = value);
+                                  setState(
+                                      () => _selectedProfessionalId = value);
                                   await _loadAppointments();
                                 },
                               ),
-                              const SizedBox(width: 8),
                               const SizedBox(height: 8),
                               Row(
                                 children: [
                                   Expanded(
                                     child: OutlinedButton(
-                                      onPressed: () => _setViewMode(AgendaViewMode.day),
+                                      onPressed: () =>
+                                          _setViewMode(AgendaViewMode.day),
                                       style: OutlinedButton.styleFrom(
-                                        backgroundColor: _viewMode == AgendaViewMode.day ? AppColors.primary : null,
+                                        backgroundColor:
+                                            _viewMode == AgendaViewMode.day
+                                                ? AppColors.primary
+                                                : null,
                                       ),
                                       child: Text(
                                         'Dia',
                                         style: TextStyle(
-                                          color: _viewMode == AgendaViewMode.day ? Colors.white : null,
+                                          color: _viewMode == AgendaViewMode.day
+                                              ? Colors.white
+                                              : null,
                                         ),
                                       ),
                                     ),
@@ -270,14 +618,21 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: OutlinedButton(
-                                      onPressed: () => _setViewMode(AgendaViewMode.week),
+                                      onPressed: () =>
+                                          _setViewMode(AgendaViewMode.week),
                                       style: OutlinedButton.styleFrom(
-                                        backgroundColor: _viewMode == AgendaViewMode.week ? AppColors.primary : null,
+                                        backgroundColor:
+                                            _viewMode == AgendaViewMode.week
+                                                ? AppColors.primary
+                                                : null,
                                       ),
                                       child: Text(
                                         'Semana',
                                         style: TextStyle(
-                                          color: _viewMode == AgendaViewMode.week ? Colors.white : null,
+                                          color:
+                                              _viewMode == AgendaViewMode.week
+                                                  ? Colors.white
+                                                  : null,
                                         ),
                                       ),
                                     ),
@@ -285,14 +640,21 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: OutlinedButton(
-                                      onPressed: () => _setViewMode(AgendaViewMode.month),
+                                      onPressed: () =>
+                                          _setViewMode(AgendaViewMode.month),
                                       style: OutlinedButton.styleFrom(
-                                        backgroundColor: _viewMode == AgendaViewMode.month ? AppColors.primary : null,
+                                        backgroundColor:
+                                            _viewMode == AgendaViewMode.month
+                                                ? AppColors.primary
+                                                : null,
                                       ),
                                       child: Text(
                                         'Mes',
                                         style: TextStyle(
-                                          color: _viewMode == AgendaViewMode.month ? Colors.white : null,
+                                          color:
+                                              _viewMode == AgendaViewMode.month
+                                                  ? Colors.white
+                                                  : null,
                                         ),
                                       ),
                                     ),
@@ -313,7 +675,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
                             children: [
                               IconButton(
                                 tooltip: _previousLabel(),
-                                onPressed: () => _shiftAgendaDate(_viewMode == AgendaViewMode.week ? -7 : -1),
+                                onPressed: () => _shiftAgendaDate(
+                                    _viewMode == AgendaViewMode.week ? -7 : -1),
                                 icon: const Icon(Icons.chevron_left),
                               ),
                               const SizedBox(width: 8),
@@ -324,11 +687,14 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                     child: Row(
                                       mainAxisSize: MainAxisSize.min,
                                       children: [
-                                        const Icon(Icons.calendar_today, size: 16),
+                                        const Icon(Icons.calendar_today,
+                                            size: 16),
                                         const SizedBox(width: 6),
                                         Text(
                                           _formatShortDate(_selectedDate),
-                                          style: Theme.of(context).textTheme.titleMedium,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .titleMedium,
                                         ),
                                       ],
                                     ),
@@ -338,54 +704,58 @@ class _AgendaScreenState extends State<AgendaScreen> {
                               const SizedBox(width: 8),
                               IconButton(
                                 tooltip: _nextLabel(),
-                                onPressed: () => _shiftAgendaDate(_viewMode == AgendaViewMode.week ? 7 : 1),
+                                onPressed: () => _shiftAgendaDate(
+                                    _viewMode == AgendaViewMode.week ? 7 : 1),
                                 icon: const Icon(Icons.chevron_right),
+                              ),
+                              const SizedBox(width: 8),
+                              SizedBox(
+                                width: 140,
+                                child: DropdownButtonFormField<String>(
+                                  initialValue: _selectedStatus,
+                                  isDense: true,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Status',
+                                    contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 10),
+                                  ),
+                                  items: const [
+                                    DropdownMenuItem(
+                                        value: '', child: Text('Todos')),
+                                    DropdownMenuItem(
+                                        value: 'scheduled',
+                                        child: Text('Agendado')),
+                                    DropdownMenuItem(
+                                        value: 'confirmed',
+                                        child: Text('Confirmado')),
+                                    DropdownMenuItem(
+                                        value: 'pending',
+                                        child: Text('Pendente')),
+                                    DropdownMenuItem(
+                                        value: 'cancelled',
+                                        child: Text('Cancelado')),
+                                    DropdownMenuItem(
+                                        value: 'done',
+                                        child: Text('Concluido')),
+                                  ],
+                                  onChanged: (value) async {
+                                    setState(
+                                        () => _selectedStatus = value ?? '');
+                                    await _loadAppointments();
+                                  },
+                                ),
                               ),
                             ],
                           ),
                         ),
                       ),
                     ),
-                    Expanded(
-                      child: ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                        itemBuilder: (_, index) {
-                          final item = _appointments[index];
-                          final status = _statusVisual(item.status);
-                          final timezone = _timezoneByProfessional[item.professionalId] ?? 'America/Sao_Paulo';
-
-                          return Card(
-                            child: ListTile(
-                              title: Text('${item.serviceName} - ${item.clientName}'),
-                              subtitle: Text(
-                                '${_formatTime(item.startsAt, timezone)} - ${_formatTime(item.endsAt, timezone)} (${item.professionalName})',
-                              ),
-                              trailing: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: status.background,
-                                  borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(color: status.border),
-                                ),
-                                child: Text(
-                                  status.label,
-                                  style: TextStyle(
-                                    color: status.text,
-                                    fontWeight: FontWeight.w500,
-                                    fontSize: 12,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                        separatorBuilder: (_, __) => const SizedBox(height: 8),
-                        itemCount: _appointments.length,
-                      ),
-                    ),
+                    if (_viewMode == AgendaViewMode.day)
+                      _buildDayList()
+                    else
+                      _buildCalendarView(),
                   ],
                 ),
     );
   }
 }
-

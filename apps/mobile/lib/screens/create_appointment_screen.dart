@@ -24,7 +24,7 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
   String? _error;
   String? _status;
 
-  List<OptionItem> _services = [];
+  List<ServiceCatalogItem> _services = [];
   List<OptionItem> _professionals = [];
   List<OptionItem> _clients = [];
   Map<String, String> _timezoneByProfessional = {};
@@ -36,7 +36,6 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
   final _clientPhoneController = TextEditingController();
   bool _anyAvailable = true;
   DateTime _start = DateTime.now().add(const Duration(hours: 1));
-  DateTime _end = DateTime.now().add(const Duration(hours: 1, minutes: 30));
 
   String? _textOrNull(String value) {
     final trimmed = value.trim();
@@ -57,7 +56,7 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
   }
 
   Future<void> _loadOptions() async {
-    final services = await _catalogService.listServices();
+    final services = await _catalogService.listServiceCatalog();
     final professionals = await _catalogService.listProfessionals();
     final clients = await _catalogService.listClients();
     final timezoneByProfessional =
@@ -69,6 +68,22 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
       _clients = clients;
       _timezoneByProfessional = timezoneByProfessional;
     });
+  }
+
+  ServiceCatalogItem? _selectedService() {
+    if (_serviceId == null || _serviceId!.isEmpty) return null;
+    for (final item in _services) {
+      if (item.id == _serviceId) return item;
+    }
+    return null;
+  }
+
+  DateTime _resolvedEndDateTime() {
+    final service = _selectedService();
+    if (service == null) {
+      return _start.add(const Duration(minutes: 30));
+    }
+    return _start.add(Duration(minutes: service.durationMin + service.intervalMin));
   }
 
   Future<void> _submit() async {
@@ -105,7 +120,7 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
               : null,
           serviceId: _serviceId!,
           startsAt: _start,
-          endsAt: _end,
+          endsAt: _resolvedEndDateTime(),
           professionalId: _anyAvailable ? null : _professionalId,
           anyAvailable: _anyAvailable,
         ),
@@ -121,8 +136,8 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
     }
   }
 
-  Future<void> _pickDateTime(bool isStart) async {
-    final initial = isStart ? _start : _end;
+  Future<void> _pickDateTime() async {
+    final initial = _start;
     final timezone = _effectiveTimezone();
     final location = _resolveLocation(timezone);
     final nowInTimezone = tz.TZDateTime.from(DateTime.now().toUtc(), location);
@@ -169,14 +184,7 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
     );
     final dt = selectedInTimezone.toUtc();
     setState(() {
-      if (isStart) {
-        _start = dt;
-        if (!_end.isAfter(_start)) {
-          _end = _start.add(const Duration(minutes: 30));
-        }
-      } else {
-        _end = dt;
-      }
+      _start = dt;
     });
   }
 
@@ -227,10 +235,10 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
                   DropdownButtonFormField<String>(
                     initialValue: _serviceId,
                     decoration: const InputDecoration(labelText: 'Servico'),
-                    items: _services
-                        .map((item) => DropdownMenuItem(
-                            value: item.id, child: Text(item.label)))
-                        .toList(),
+                    items: _services.map((item) {
+                      final label = '${item.name} (${item.durationMin}m + ${item.intervalMin}m intervalo)';
+                      return DropdownMenuItem(value: item.id, child: Text(label));
+                    }).toList(),
                     onChanged: (value) => setState(() => _serviceId = value),
                   ),
                   const SizedBox(height: 12),
@@ -300,18 +308,14 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
                     title: const Text('Inicio'),
                     subtitle: Text(_formatDateTime(_start, _effectiveTimezone())),
                     trailing: IconButton(
-                      onPressed: () => _pickDateTime(true),
+                      onPressed: _pickDateTime,
                       icon: const Icon(Icons.event),
                     ),
                   ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Fim'),
-                    subtitle: Text(_formatDateTime(_end, _effectiveTimezone())),
-                    trailing: IconButton(
-                      onPressed: () => _pickDateTime(false),
-                      icon: const Icon(Icons.event),
-                    ),
+                    title: const Text('Fim de bloqueio'),
+                    subtitle: Text(_formatDateTime(_resolvedEndDateTime(), _effectiveTimezone())),
                   ),
                   const SizedBox(height: 12),
                   ElevatedButton(

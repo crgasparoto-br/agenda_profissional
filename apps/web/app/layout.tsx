@@ -1,7 +1,7 @@
-﻿import "./globals.css";
+import "./globals.css";
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
-import { Navbar } from "@/components/navbar";
+import { AppShell } from "@/components/app-shell";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -26,10 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <header className="top-header">
           <div className="top-header-inner">Agenda Profissional</div>
         </header>
-        <div className="app-shell">
-          <Navbar />
-          <main>{children}</main>
-        </div>
+        <AppShell>{children}</AppShell>
       </body>
     </html>
   );

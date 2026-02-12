@@ -3,6 +3,12 @@ import { CreateAppointmentInputSchema } from "../_shared/schemas.ts";
 
 const ACTIVE_STATUSES = ["scheduled", "confirmed"];
 const jsonHeaders = { "Content-Type": "application/json" };
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "POST, OPTIONS"
+};
+const responseHeaders = { ...jsonHeaders, ...corsHeaders };
 
 type CandidateProfessional = { id: string };
 type ScheduleSettingsRow = {
@@ -10,6 +16,11 @@ type ScheduleSettingsRow = {
   timezone: string;
   workdays: unknown;
   work_hours: unknown;
+};
+type UnavailabilityRow = {
+  professional_id: string;
+  starts_at: string;
+  ends_at: string;
 };
 type BreakConfig = { enabled: boolean; start: string; end: string };
 
@@ -74,6 +85,24 @@ function overlaps(startA: number, endA: number, startB: number, endB: number) {
   return startA < endB && startB < endA;
 }
 
+function hasUnavailabilityOverlap(
+  unavailabilityRows: UnavailabilityRow[] | undefined,
+  startsAtIso: string,
+  endsAtIso: string
+) {
+  if (!unavailabilityRows || unavailabilityRows.length === 0) return false;
+  const startsAt = new Date(startsAtIso);
+  const endsAt = new Date(endsAtIso);
+  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) return true;
+
+  return unavailabilityRows.some((item) => {
+    const absenceStart = new Date(item.starts_at);
+    const absenceEnd = new Date(item.ends_at);
+    if (Number.isNaN(absenceStart.getTime()) || Number.isNaN(absenceEnd.getTime())) return true;
+    return startsAt < absenceEnd && absenceStart < endsAt;
+  });
+}
+
 function isWithinSchedule(
   settings: ScheduleSettingsRow | null | undefined,
   startsAtIso: string,
@@ -134,20 +163,24 @@ function isWithinSchedule(
 }
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   if (req.method !== "POST") {
-    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers: responseHeaders });
   }
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? Deno.env.get("APP_SUPABASE_URL");
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? Deno.env.get("APP_SUPABASE_ANON_KEY");
 
   if (!supabaseUrl || !anonKey) {
-    return new Response(JSON.stringify({ error: "Missing Supabase env" }), { status: 500, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Missing Supabase env" }), { status: 500, headers: responseHeaders });
   }
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) {
-    return new Response(JSON.stringify({ error: "Missing Authorization header" }), { status: 401, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Missing Authorization header" }), { status: 401, headers: responseHeaders });
   }
 
   const supabase = createClient(supabaseUrl, anonKey, {
@@ -160,7 +193,7 @@ Deno.serve(async (req) => {
   } = await supabase.auth.getUser();
 
   if (userError || !user) {
-    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: responseHeaders });
   }
 
   const body = await req.json().catch(() => null);
@@ -168,7 +201,7 @@ Deno.serve(async (req) => {
   if (!parsed.success) {
     return new Response(JSON.stringify({ error: "Invalid payload", details: parsed.error.flatten() }), {
       status: 400,
-      headers: jsonHeaders
+      headers: responseHeaders
     });
   }
 
@@ -177,37 +210,46 @@ Deno.serve(async (req) => {
 
   const { data: tenantId, error: tenantError } = await supabase.rpc("auth_tenant_id");
   if (tenantError || !tenantId) {
-    return new Response(JSON.stringify({ error: "Unable to resolve tenant" }), { status: 403, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Unable to resolve tenant" }), { status: 403, headers: responseHeaders });
   }
 
   const { data: service, error: serviceError } = await supabase
     .from("services")
-    .select("id, specialty_id, duration_min")
+    .select("id, specialty_id, duration_min, interval_min")
     .eq("tenant_id", tenantId)
     .eq("id", payload.service_id)
     .eq("active", true)
     .maybeSingle();
 
   if (serviceError || !service) {
-    return new Response(JSON.stringify({ error: "Service not found" }), { status: 404, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Service not found" }), { status: 404, headers: responseHeaders });
   }
   const startsAt = new Date(payload.starts_at);
   if (Number.isNaN(startsAt.getTime())) {
-    return new Response(JSON.stringify({ error: "Invalid starts_at" }), { status: 400, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "Invalid starts_at" }), { status: 400, headers: responseHeaders });
   }
   const serviceDuration = Number(service.duration_min);
   if (!Number.isInteger(serviceDuration) || serviceDuration <= 0) {
     return new Response(JSON.stringify({ error: "Service duration is invalid" }), {
       status: 500,
-      headers: jsonHeaders
+      headers: responseHeaders
     });
   }
-  const resolvedEndsAt = payload.ends_at ?? new Date(startsAt.getTime() + serviceDuration * 60 * 1000).toISOString();
+  const serviceInterval = Number(service.interval_min ?? 0);
+  if (!Number.isInteger(serviceInterval) || serviceInterval < 0) {
+    return new Response(JSON.stringify({ error: "Service interval is invalid" }), {
+      status: 500,
+      headers: responseHeaders
+    });
+  }
+
+  const totalBlockedMinutes = serviceDuration + serviceInterval;
+  const resolvedEndsAt = new Date(startsAt.getTime() + totalBlockedMinutes * 60 * 1000).toISOString();
   const endsAt = new Date(resolvedEndsAt);
   if (Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
     return new Response(JSON.stringify({ error: "Invalid appointment time range" }), {
       status: 400,
-      headers: jsonHeaders
+      headers: responseHeaders
     });
   }
 
@@ -219,12 +261,32 @@ Deno.serve(async (req) => {
   if (scheduleError) {
     return new Response(JSON.stringify({ error: "Failed to load schedule settings" }), {
       status: 500,
-      headers: jsonHeaders
+      headers: responseHeaders
     });
   }
   const scheduleByProfessional = new Map<string, ScheduleSettingsRow>(
     ((scheduleRows ?? []) as ScheduleSettingsRow[]).map((item) => [item.professional_id, item])
   );
+
+  const { data: unavailabilityData, error: unavailabilityError } = await supabase
+    .from("professional_unavailability")
+    .select("professional_id, starts_at, ends_at")
+    .eq("tenant_id", tenantId);
+
+  if (unavailabilityError) {
+    return new Response(JSON.stringify({ error: "Failed to load professional unavailability" }), {
+      status: 500,
+      headers: responseHeaders
+    });
+  }
+
+  const unavailabilityByProfessional = new Map<string, UnavailabilityRow[]>();
+  for (const row of (unavailabilityData ?? []) as UnavailabilityRow[]) {
+    if (!unavailabilityByProfessional.has(row.professional_id)) {
+      unavailabilityByProfessional.set(row.professional_id, []);
+    }
+    unavailabilityByProfessional.get(row.professional_id)?.push(row);
+  }
 
   if (payload.any_available && !selectedProfessionalId) {
     const { data: serviceLinks, error: linksError } = await supabase
@@ -234,12 +296,12 @@ Deno.serve(async (req) => {
       .eq("service_id", payload.service_id);
 
     if (linksError) {
-      return new Response(JSON.stringify({ error: "Failed to find professionals" }), { status: 500, headers: jsonHeaders });
+      return new Response(JSON.stringify({ error: "Failed to find professionals" }), { status: 500, headers: responseHeaders });
     }
 
     const professionalIds = (serviceLinks ?? []).map((link) => link.professional_id);
     if (professionalIds.length === 0) {
-      return new Response(JSON.stringify({ error: "No available professional" }), { status: 409, headers: jsonHeaders });
+      return new Response(JSON.stringify({ error: "No available professional" }), { status: 409, headers: responseHeaders });
     }
 
     const { data: professionals, error: professionalsError } = await supabase
@@ -250,12 +312,22 @@ Deno.serve(async (req) => {
       .in("id", professionalIds);
 
     if (professionalsError) {
-      return new Response(JSON.stringify({ error: "Failed to list professionals" }), { status: 500, headers: jsonHeaders });
+      return new Response(JSON.stringify({ error: "Failed to list professionals" }), { status: 500, headers: responseHeaders });
     }
 
     for (const professional of (professionals ?? []) as CandidateProfessional[]) {
       const settings = scheduleByProfessional.get(professional.id);
       if (!isWithinSchedule(settings, payload.starts_at, resolvedEndsAt)) {
+        continue;
+      }
+
+      if (
+        hasUnavailabilityOverlap(
+          unavailabilityByProfessional.get(professional.id),
+          payload.starts_at,
+          resolvedEndsAt
+        )
+      ) {
         continue;
       }
 
@@ -276,19 +348,32 @@ Deno.serve(async (req) => {
     }
 
     if (!selectedProfessionalId) {
-      return new Response(JSON.stringify({ error: "No available professional" }), { status: 409, headers: jsonHeaders });
-    }
+      return new Response(JSON.stringify({ error: "No available professional" }), { status: 409, headers: responseHeaders });
+  }
   }
 
   if (!selectedProfessionalId) {
-    return new Response(JSON.stringify({ error: "professional_id is required" }), { status: 400, headers: jsonHeaders });
+    return new Response(JSON.stringify({ error: "professional_id is required" }), { status: 400, headers: responseHeaders });
   }
 
   const selectedProfessionalSchedule = scheduleByProfessional.get(selectedProfessionalId);
   if (!isWithinSchedule(selectedProfessionalSchedule, payload.starts_at, resolvedEndsAt)) {
     return new Response(JSON.stringify({ error: "Horario indisponivel." }), {
       status: 409,
-      headers: jsonHeaders
+      headers: responseHeaders
+    });
+  }
+
+  if (
+    hasUnavailabilityOverlap(
+      unavailabilityByProfessional.get(selectedProfessionalId),
+      payload.starts_at,
+      resolvedEndsAt
+    )
+  ) {
+    return new Response(JSON.stringify({ error: "Profissional ausente no periodo selecionado." }), {
+      status: 409,
+      headers: responseHeaders
     });
   }
 
@@ -298,7 +383,7 @@ Deno.serve(async (req) => {
     if (!normalizedPhone) {
       return new Response(JSON.stringify({ error: "client_phone is required when client_id is null" }), {
         status: 400,
-        headers: jsonHeaders
+        headers: responseHeaders
       });
     }
 
@@ -312,7 +397,7 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (existingClientError) {
-      return new Response(JSON.stringify({ error: "Failed to resolve client" }), { status: 500, headers: jsonHeaders });
+      return new Response(JSON.stringify({ error: "Failed to resolve client" }), { status: 500, headers: responseHeaders });
     }
 
     if (existingClient?.id) {
@@ -340,7 +425,7 @@ Deno.serve(async (req) => {
       if (insertClientError || !insertedClient) {
         return new Response(JSON.stringify({ error: "Could not create client" }), {
           status: 500,
-          headers: jsonHeaders
+          headers: responseHeaders
         });
       }
 
@@ -369,17 +454,17 @@ Deno.serve(async (req) => {
 
   if (insertError) {
     if (insertError.code === "23P01") {
-      return new Response(JSON.stringify({ error: "Time conflict for professional" }), { status: 409, headers: jsonHeaders });
+      return new Response(JSON.stringify({ error: "Time conflict for professional" }), { status: 409, headers: responseHeaders });
     }
 
     return new Response(JSON.stringify({ error: "Could not create appointment" }), {
       status: 500,
-      headers: jsonHeaders
+      headers: responseHeaders
     });
   }
 
   return new Response(JSON.stringify({ ok: true, appointment: insertedAppointment }), {
     status: 201,
-    headers: jsonHeaders
+    headers: responseHeaders
   });
 });

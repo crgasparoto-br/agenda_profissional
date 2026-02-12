@@ -56,7 +56,7 @@ O repositório segue arquitetura de monorepo com separação por apps, pacote co
 
 1. Meta WhatsApp chama `whatsapp-webhook` (GET de verificação e POST de eventos).
 2. A função valida assinatura (quando `WHATSAPP_APP_SECRET` está configurado).
-3. Resolve organização via `WHATSAPP_TENANT_MAP_JSON` ou `WHATSAPP_DEFAULT_TENANT_ID`.
+3. Resolve organização via `whatsapp_channel_settings` por `phone_number_id` (com fallback em `WHATSAPP_TENANT_MAP_JSON`/`WHATSAPP_DEFAULT_TENANT_ID`).
 4. Faz upsert de cliente por telefone WhatsApp.
 5. Persiste histórico em `whatsapp_conversations` e `whatsapp_messages`.
 6. Envia contexto recente para a API da OpenAI e gera resposta natural.

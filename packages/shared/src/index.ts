@@ -5,7 +5,15 @@ export const BootstrapTenantInputSchema = z.object({
   tenant_type: z.enum(["individual", "group"]),
   tenant_name: z.string().trim().min(2).max(120),
   full_name: z.string().trim().min(2).max(120),
-  phone: z.string().trim().min(8).max(30).optional().default("")
+  phone: z
+    .string()
+    .trim()
+    .max(30)
+    .optional()
+    .default("")
+    .refine((value) => value === "" || value.replace(/\D/g, "").length >= 8, {
+      message: "phone must be empty or contain at least 8 digits"
+    })
 });
 
 export const CreateAppointmentInputSchema = z

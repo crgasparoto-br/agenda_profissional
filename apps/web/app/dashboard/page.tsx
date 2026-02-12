@@ -30,10 +30,21 @@ type ScheduleSettingsRow = {
   timezone: string;
   workdays: unknown;
   work_hours: unknown;
-  slot_min: number;
-  buffer_min: number;
 };
 type BreakConfig = { enabled: boolean; start: string; end: string };
+type UnavailabilityRow = {
+  id: string;
+  professional_id: string;
+  starts_at: string;
+  ends_at: string;
+  reason: string | null;
+};
+type ProfessionalServiceRow = {
+  professional_id: string;
+  services: { duration_min: number | null; interval_min: number | null } | null;
+};
+
+const CALENDAR_SLOT_MINUTES = 30;
 
 function statusMeta(status: string) {
   const value = status.toLowerCase();
@@ -97,6 +108,62 @@ function formatDateLabel(isoValue: string, timezone: string) {
   } catch {
     return "--/--/----";
   }
+}
+
+function dateKeyInTimezone(isoValue: string, timezone: string) {
+  const date = new Date(isoValue);
+  if (Number.isNaN(date.getTime())) return null;
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(date);
+    const year = parts.find((part) => part.type === "year")?.value;
+    const month = parts.find((part) => part.type === "month")?.value;
+    const day = parts.find((part) => part.type === "day")?.value;
+    if (!year || !month || !day) return null;
+    return `${year}-${month}-${day}`;
+  } catch {
+    return null;
+  }
+}
+
+function unavailableMinutesForDay(
+  dayKey: string,
+  timezone: string,
+  rows: UnavailabilityRow[]
+) {
+  if (rows.length === 0) return 0;
+
+  let total = 0;
+  for (const row of rows) {
+    const startKey = dateKeyInTimezone(row.starts_at, timezone);
+    const endKey = dateKeyInTimezone(new Date(new Date(row.ends_at).getTime() - 1).toISOString(), timezone);
+    if (!startKey || !endKey) continue;
+    if (dayKey < startKey || dayKey > endKey) continue;
+
+    const startInfo = getWeekdayAndMinutesInTimezone(row.starts_at, timezone);
+    const endInfo = getWeekdayAndMinutesInTimezone(row.ends_at, timezone);
+    if (!startInfo || !endInfo) continue;
+
+    let dayStartMin = 0;
+    let dayEndMin = 24 * 60;
+
+    if (dayKey === startKey) {
+      dayStartMin = Math.max(startInfo.minutes, 0);
+    }
+    if (dayKey === endKey) {
+      dayEndMin = Math.min(endInfo.minutes, 24 * 60);
+    }
+
+    if (dayEndMin > dayStartMin) {
+      total += dayEndMin - dayStartMin;
+    }
+  }
+
+  return Math.max(total, 0);
 }
 
 function parseMinutes(value: string): number | null {
@@ -163,6 +230,12 @@ function overlaps(startA: number, endA: number, startB: number, endB: number) {
   return startA < endB && startB < endA;
 }
 
+function minutesToSlots(minutes: number, strategy: "ceil" | "floor" = "ceil") {
+  const safeMinutes = Math.max(minutes, 0);
+  const rawSlots = safeMinutes / CALENDAR_SLOT_MINUTES;
+  return strategy === "floor" ? Math.floor(rawSlots) : Math.ceil(rawSlots);
+}
+
 function isWithinSchedule(
   settings: ScheduleSettingsRow | null | undefined,
   startsAtIso: string,
@@ -221,12 +294,15 @@ export default function DashboardPage() {
   const [appointments, setAppointments] = useState<DashboardAppointment[]>([]);
   const [timezoneByProfessional, setTimezoneByProfessional] = useState<Record<string, string>>({});
   const [scheduleByProfessional, setScheduleByProfessional] = useState<Record<string, ScheduleSettingsRow>>({});
+  const [slotMinutesByProfessional, setSlotMinutesByProfessional] = useState<Record<string, number>>({});
   const [activeProfessionalIds, setActiveProfessionalIds] = useState<string[]>([]);
   const [status, setStatus] = useState<string | null>(null);
+  const [selectedStatus, setSelectedStatus] = useState<string>("");
   const [professionals, setProfessionals] = useState<ProfessionalOption[]>([]);
   const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const [showPjTabs, setShowPjTabs] = useState(false);
+  const [unavailabilityByProfessional, setUnavailabilityByProfessional] = useState<Record<string, UnavailabilityRow[]>>({});
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [selectedDate, setSelectedDate] = useState(() => {
     const today = new Date();
@@ -294,27 +370,26 @@ export default function DashboardPage() {
     const occupiedByDay: Record<string, number> = {};
     const activeStatuses = new Set(["scheduled", "confirmed", "pending"]);
     for (const item of appointments) {
-      if (!activeStatuses.has(item.status.toLowerCase())) continue;
+      const normalizedStatus = item.status.toLowerCase();
+      if (selectedStatus) {
+        if (normalizedStatus !== selectedStatus) continue;
+      } else if (!activeStatuses.has(normalizedStatus)) {
+        continue;
+      }
       const timezone = timezoneByProfessional[item.professional_id] ?? "America/Sao_Paulo";
-      const key = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date(item.starts_at));
-      const schedule = scheduleByProfessional[item.professional_id];
-      const slot = schedule?.slot_min ?? 30;
-      const buffer = schedule?.buffer_min ?? 0;
-      const slotWindow = Math.max(slot + buffer, 1);
-      const startsAt = new Date(item.starts_at);
-      const endsAt = new Date(item.ends_at);
-      const durationMinutes = Math.max(Math.round((endsAt.getTime() - startsAt.getTime()) / 60000), 1);
-      const occupiedUnits = Math.max(Math.ceil((durationMinutes + buffer) / slotWindow), 1);
-      occupiedByDay[key] = (occupiedByDay[key] ?? 0) + occupiedUnits;
+      const key = dateKeyInTimezone(item.starts_at, timezone);
+      if (!key) continue;
+      occupiedByDay[key] = (occupiedByDay[key] ?? 0) + 1;
     }
 
     const statsByDay: Record<string, { occupied: number; free: number }> = {};
     for (const day of calendarDays) {
       const key = toDateKey(day);
       const weekday = day.getDay();
-      let totalCapacity = 0;
+      let totalCapacitySlots = 0;
       for (const professionalId of activeProfessionalIds) {
         const schedule = scheduleByProfessional[professionalId];
+        const unavailableRanges = unavailabilityByProfessional[professionalId] ?? [];
         const workdays = parseWorkdays(schedule?.workdays);
         if (!workdays.includes(weekday)) continue;
 
@@ -353,17 +428,32 @@ export default function DashboardPage() {
           }
         }
 
-        const slot = schedule?.slot_min ?? 30;
-        const buffer = schedule?.buffer_min ?? 0;
-        const slotWindow = Math.max(slot + buffer, 1);
-        totalCapacity += Math.max(Math.floor(minutes / slotWindow), 0);
+        const timezone = schedule?.timezone || "America/Sao_Paulo";
+        const unavailableMinutes = unavailableMinutesForDay(key, timezone, unavailableRanges);
+        const availableMinutes = Math.max(minutes - unavailableMinutes, 0);
+        const slotMinutes = Math.max(slotMinutesByProfessional[professionalId] ?? CALENDAR_SLOT_MINUTES, 1);
+        totalCapacitySlots += Math.floor(availableMinutes / slotMinutes);
       }
 
       const occupied = occupiedByDay[key] ?? 0;
-      statsByDay[key] = { occupied, free: Math.max(totalCapacity - occupied, 0) };
+      statsByDay[key] = { occupied, free: Math.max(totalCapacitySlots - occupied, 0) };
     }
     return statsByDay;
-  }, [appointments, timezoneByProfessional, calendarDays, activeProfessionalIds, scheduleByProfessional]);
+  }, [
+    appointments,
+    selectedStatus,
+    timezoneByProfessional,
+    calendarDays,
+    activeProfessionalIds,
+    scheduleByProfessional,
+    slotMinutesByProfessional,
+    unavailabilityByProfessional
+  ]);
+
+  const filteredAppointments = useMemo(() => {
+    if (!selectedStatus) return appointments;
+    return appointments.filter((item) => item.status.toLowerCase() === selectedStatus);
+  }, [appointments, selectedStatus]);
 
   function shiftDate(days: number) {
     const base = new Date(`${selectedDate}T00:00:00`);
@@ -423,6 +513,9 @@ export default function DashboardPage() {
       if (selectedProfessionalId) {
         appointmentQuery = appointmentQuery.eq("professional_id", selectedProfessionalId);
       }
+      if (selectedStatus) {
+        appointmentQuery = appointmentQuery.eq("status", selectedStatus);
+      }
 
       const { data, error: queryError } = await appointmentQuery;
 
@@ -443,29 +536,69 @@ export default function DashboardPage() {
       if (ids.length === 0) {
         setTimezoneByProfessional({});
         setScheduleByProfessional({});
+        setSlotMinutesByProfessional({});
+        setUnavailabilityByProfessional({});
         return;
       }
 
       const { data: scheduleData } = await supabase
         .from("professional_schedule_settings")
-        .select("professional_id, timezone, workdays, work_hours, slot_min, buffer_min")
+        .select("professional_id, timezone, workdays, work_hours")
         .in("professional_id", ids);
+      const { data: professionalServicesData } = await supabase
+        .from("professional_services")
+        .select("professional_id, services(duration_min, interval_min)")
+        .in("professional_id", ids);
+
+      const unavailabilityTable = (supabase as any).from("professional_unavailability");
+      const { data: unavailabilityData } = await unavailabilityTable
+        .select("id, professional_id, starts_at, ends_at, reason")
+        .in("professional_id", ids)
+        .order("starts_at", { ascending: true });
 
       const timezoneMap: Record<string, string> = {};
       const scheduleMap: Record<string, ScheduleSettingsRow> = {};
+      const slotMinutesMap: Record<string, number> = {};
+      const slotCandidatesByProfessional: Record<string, number[]> = {};
+      const unavailabilityMap: Record<string, UnavailabilityRow[]> = {};
       for (const row of (scheduleData ?? []) as ScheduleSettingsRow[]) {
         if (row.professional_id) {
           timezoneMap[row.professional_id] = row.timezone || "America/Sao_Paulo";
           scheduleMap[row.professional_id] = row;
         }
       }
+      for (const row of (professionalServicesData ?? []) as ProfessionalServiceRow[]) {
+        if (!row.professional_id || !row.services) continue;
+        const duration = row.services.duration_min ?? 0;
+        const interval = row.services.interval_min ?? 0;
+        const blockMinutes = duration + interval;
+        if (blockMinutes <= 0) continue;
+        if (!slotCandidatesByProfessional[row.professional_id]) {
+          slotCandidatesByProfessional[row.professional_id] = [];
+        }
+        slotCandidatesByProfessional[row.professional_id].push(blockMinutes);
+      }
+      for (const professionalId of ids) {
+        const candidates = slotCandidatesByProfessional[professionalId] ?? [];
+        slotMinutesMap[professionalId] =
+          candidates.length > 0 ? Math.max(Math.min(...candidates), 1) : CALENDAR_SLOT_MINUTES;
+      }
+      for (const row of (unavailabilityData ?? []) as UnavailabilityRow[]) {
+        if (!row.professional_id) continue;
+        if (!unavailabilityMap[row.professional_id]) {
+          unavailabilityMap[row.professional_id] = [];
+        }
+        unavailabilityMap[row.professional_id].push(row);
+      }
       setTimezoneByProfessional(timezoneMap);
       setScheduleByProfessional(scheduleMap);
+      setSlotMinutesByProfessional(slotMinutesMap);
+      setUnavailabilityByProfessional(unavailabilityMap);
     }
 
     loadAccountContext();
     load();
-  }, [selectedProfessionalId, todayRange.end, todayRange.start]);
+  }, [selectedProfessionalId, selectedStatus, todayRange.end, todayRange.start]);
 
   async function handleDeleteAppointment(appointmentId: string) {
     if (!confirm("Deseja realmente excluir este agendamento?")) return;
@@ -497,13 +630,30 @@ export default function DashboardPage() {
       setError("Data/hora invalida.");
       return;
     }
-    const endsAtDate = new Date(startsAtDate.getTime() + durationMinutes * 60 * 1000);
+    const currentBlockedMinutes = Math.max(
+      Math.round((new Date(appointment.ends_at).getTime() - new Date(appointment.starts_at).getTime()) / 60000),
+      1
+    );
+    const endsAtDate = new Date(startsAtDate.getTime() + currentBlockedMinutes * 60 * 1000);
     const startsAtIso = startsAtDate.toISOString();
     const endsAtIso = endsAtDate.toISOString();
 
     const settings = scheduleByProfessional[appointment.professional_id];
     if (!isWithinSchedule(settings, startsAtIso, endsAtIso)) {
       setError("Horario indisponivel.");
+      return;
+    }
+
+    const unavailableRanges = unavailabilityByProfessional[appointment.professional_id] ?? [];
+    const isOverlappingUnavailability = unavailableRanges.some((item) => {
+      const start = new Date(item.starts_at);
+      const end = new Date(item.ends_at);
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+      return startsAtDate < end && start < endsAtDate;
+    });
+
+    if (isOverlappingUnavailability) {
+      setError("Profissional ausente no periodo selecionado.");
       return;
     }
 
@@ -536,7 +686,7 @@ export default function DashboardPage() {
 
   return (
     <section className="page-stack">
-      <div className="card row align-center justify-between">
+      <div className="card row align-center justify-between page-title-row">
         <h1>Painel - Agenda</h1>
         <Link href="/appointments/new">Novo agendamento</Link>
       </div>
@@ -597,6 +747,17 @@ export default function DashboardPage() {
               </svg>
             </span>
           </button>
+          <label className="inline-field date-nav-status-field">
+            <span>Status</span>
+            <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)}>
+              <option value="">Todos</option>
+              <option value="scheduled">Agendado</option>
+              <option value="confirmed">Confirmado</option>
+              <option value="pending">Pendente</option>
+              <option value="cancelled">Cancelado</option>
+              <option value="done">Concluido</option>
+            </select>
+          </label>
         </div>
       </div>
 
@@ -617,6 +778,7 @@ export default function DashboardPage() {
 
       {viewMode === "day" ? (
         <div className="card">
+          <div className="table-wrap">
           <table>
             <thead>
               <tr>
@@ -629,7 +791,7 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {appointments.map((item) => {
+              {filteredAppointments.map((item) => {
                 const meta = statusMeta(item.status);
                 const timezone = timezoneByProfessional[item.professional_id] ?? "America/Sao_Paulo";
 
@@ -654,7 +816,7 @@ export default function DashboardPage() {
                             value={editStartsAt}
                             onChange={(e) => setEditStartsAt(e.target.value)}
                           />
-                          <div className="row">
+                          <div className="row actions-row">
                             <button
                               type="button"
                               onClick={() => handleSaveAppointment(item)}
@@ -676,7 +838,7 @@ export default function DashboardPage() {
                           </div>
                         </div>
                       ) : (
-                        <div className="row">
+                        <div className="row actions-row">
                           <button
                             type="button"
                             className="secondary"
@@ -702,13 +864,14 @@ export default function DashboardPage() {
                   </tr>
                 );
               })}
-              {appointments.length === 0 ? (
+              {filteredAppointments.length === 0 ? (
                 <tr>
                   <td colSpan={6}>Nenhum agendamento para o periodo selecionado.</td>
                 </tr>
               ) : null}
             </tbody>
           </table>
+          </div>
         </div>
       ) : (
         <div className="card">

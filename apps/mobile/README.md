@@ -31,4 +31,5 @@ flutter run \
 
 - Para Android Emulator, use `10.0.2.2` no lugar de `127.0.0.1`.
 - Sessão é persistida automaticamente pelo `supabase_flutter`.
+- Se a web estiver em um projeto Supabase diferente, passe `SUPABASE_URL` e `SUPABASE_ANON_KEY` no `flutter run` para usar o mesmo backend.
 
