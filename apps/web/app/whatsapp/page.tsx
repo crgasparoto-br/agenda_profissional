@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { FormEvent, useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
@@ -23,7 +23,7 @@ type ProfessionalRow = {
 };
 
 const DEFAULT_PROMPT =
-  "Voce e a secretaria virtual da Agenda Profissional. Cumprimente o cliente, pergunte preferencia de dia e horario, apresente opcoes disponiveis e confirme o agendamento somente apos validacao.";
+  "Você e a secretaria virtual da Agenda Profissional. Cumprimente o cliente, pergunte preferência de dia e Horário, apresente opções disponiveis e confirme o agendamento somente após validação.";
 
 export default function WhatsappSettingsPage() {
   const [tenantId, setTenantId] = useState<string | null>(null);
@@ -78,7 +78,7 @@ export default function WhatsappSettingsPage() {
       setLoading(true);
       const { data, error: tenantError } = await supabase.rpc("auth_tenant_id");
       if (tenantError || !data) {
-        setError("Nao foi possivel resolver a organizacao atual.");
+        setError("Não foi possível resolver a organização atual.");
         setLoading(false);
         return;
       }
@@ -217,7 +217,7 @@ export default function WhatsappSettingsPage() {
             <label className="col">
               Profissional (opcional)
               <select value={professionalId} onChange={(e) => setProfessionalId(e.target.value)}>
-                <option value="">Canal geral da organizacao</option>
+                <option value="">Canal geral da organização</option>
                 {professionals
                   .filter((item) => item.active)
                   .map((item) => (
@@ -283,7 +283,7 @@ export default function WhatsappSettingsPage() {
                 <th>Profissional</th>
                 <th>Status</th>
                 <th>IA</th>
-                <th>Acoes</th>
+                <th>Ações</th>
               </tr>
             </thead>
             <tbody>
@@ -329,3 +329,4 @@ export default function WhatsappSettingsPage() {
     </section>
   );
 }
+

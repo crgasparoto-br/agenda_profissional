@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/appointment.dart';
+import '../models/app_exception.dart';
 import 'response_utils.dart';
 
 class ProfessionalScheduleSettings {
@@ -37,7 +38,7 @@ class AppointmentService {
     var query = _client
         .from('appointments')
         .select(
-            'id, professional_id, starts_at, ends_at, status, professionals(name), services(name, duration_min, interval_min), clients(full_name)')
+            'id, tenant_id, client_id, service_id, specialty_id, professional_id, source, starts_at, ends_at, status, cancellation_reason, professionals(name), services(name, duration_min, interval_min), clients(full_name)')
         .gte('starts_at', start.toUtc().toIso8601String())
         .lt('starts_at', end.toUtc().toIso8601String());
     if (professionalId != null && professionalId.isNotEmpty) {
@@ -158,6 +159,74 @@ class AppointmentService {
       expectedStatus: 201,
       operation: 'create-appointment',
       responseData: response.data,
+    );
+  }
+
+  Future<void> updateAppointmentStatus({
+    required String appointmentId,
+    required String status,
+    String? cancellationReason,
+  }) async {
+    final payload = <String, dynamic>{'status': status};
+    if (cancellationReason != null) {
+      payload['cancellation_reason'] = cancellationReason;
+    }
+
+    final response = await _client
+        .from('appointments')
+        .update(payload)
+        .eq('id', appointmentId)
+        .select('id')
+        .maybeSingle();
+
+    if (response == null) {
+      throw const AppException(
+        message: 'Agendamento não encontrado para atualização.',
+        code: 'appointment_not_found',
+      );
+    }
+  }
+
+  Future<void> rescheduleAppointment({
+    required AppointmentItem original,
+    required DateTime newStartsAt,
+    required DateTime newEndsAt,
+  }) async {
+    final source = (original.source == 'professional' ||
+            original.source == 'client_link' ||
+            original.source == 'ai')
+        ? original.source
+        : 'professional';
+
+    final inserted = await _client
+        .from('appointments')
+        .insert({
+          'tenant_id': original.tenantId,
+          'client_id': original.clientId,
+          'service_id': original.serviceId,
+          'specialty_id': original.specialtyId,
+          'professional_id': original.professionalId,
+          'starts_at': newStartsAt.toUtc().toIso8601String(),
+          'ends_at': newEndsAt.toUtc().toIso8601String(),
+          'status': 'scheduled',
+          'source': source,
+          'assigned_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .select('id')
+        .maybeSingle();
+
+    if (inserted == null || inserted['id'] is! String) {
+      throw const AppException(
+        message: 'Não foi possível criar o novo agendamento na remarcação.',
+        code: 'reschedule_insert_failed',
+      );
+    }
+
+    final newId = inserted['id'] as String;
+    await updateAppointmentStatus(
+      appointmentId: original.id,
+      status: 'rescheduled',
+      cancellationReason: 'Remarcado manualmente para $newId',
     );
   }
 }

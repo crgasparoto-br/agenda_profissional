@@ -1,0 +1,284 @@
+
+> agenda-profissional@0.1.0 dev:web
+> npm --workspace apps/web run dev
+
+
+> @agenda-profissional/web@0.1.0 dev
+> next dev
+
+   ▲ Next.js 15.5.12
+   - Local:        http://localhost:3001
+   - Network:      http://192.168.18.101:3001
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 6.6s
+ ○ Compiling /onboarding ...
+ ✓ Compiled /onboarding in 4.2s (704 modules)
+ GET /onboarding 200 in 6168ms
+ ○ Compiling /login ...
+ ✓ Compiled /login in 3.6s (744 modules)
+ GET /login 200 in 5101ms
+ GET /login 200 in 305ms
+ GET /onboarding 200 in 324ms
+ ○ Compiling /dashboard ...
+ ✓ Compiled /dashboard in 1209ms (751 modules)
+ GET /dashboard 200 in 1545ms
+ ○ Compiling /clients ...
+ ✓ Compiled /clients in 839ms (758 modules)
+ GET /clients 200 in 1156ms
+ ○ Compiling /services ...
+ ✓ Compiled /services in 567ms (765 modules)
+ GET /services 200 in 751ms
+ ○ Compiling /professionals ...
+ ✓ Compiled /professionals in 5s (772 modules)
+ GET /professionals 200 in 6496ms
+ GET /professionals 200 in 65ms
+ GET /professionals 200 in 55ms
+ ○ Compiling /schedules ...
+ ✓ Compiled /schedules in 1800ms (757 modules)
+ GET /schedules 200 in 2535ms
+ ✓ Compiled in 1876ms (312 modules)
+ ✓ Compiled in 394ms (312 modules)
+ ✓ Compiled in 344ms (312 modules)
+ ○ Compiling /_error ...
+ GET /schedules 500 in 17902ms
+ GET /schedules 500 in 59ms
+ GET /schedules 500 in 83ms
+ GET /schedules 500 in 81ms
+ GET /schedules 500 in 52ms
+ ✓ Compiled /_error in 4.5s (1004 modules)
+ ✓ Compiled in 1194ms (1004 modules)
+ ✓ Compiled in 260ms (477 modules)
+ ✓ Compiled in 480ms (477 modules)
+ GET /schedules 200 in 2267ms
+ ○ Compiling /login ...
+ ✓ Compiled /login in 2.5s (549 modules)
+ GET /login 200 in 4437ms
+ ✓ Compiled in 4.1s (1031 modules)
+ GET /login 200 in 479ms
+ ✓ Compiled in 1205ms (482 modules)
+ GET /login 200 in 208ms
+ GET /login 200 in 1115ms
+ ○ Compiling /onboarding ...
+ ✓ Compiled /onboarding in 1047ms (566 modules)
+ GET /onboarding 200 in 1572ms
+ GET /onboarding 200 in 90ms
+ ○ Compiling /dashboard ...
+ ✓ Compiled /dashboard in 667ms (571 modules)
+ GET /dashboard 200 in 960ms
+ ○ Compiling /appointments/new ...
+ ✓ Compiled /appointments/new in 1506ms (1036 modules)
+ GET /appointments/new 200 in 1889ms
+ GET /professionals 200 in 56ms
+ GET /dashboard 200 in 67ms
+ ✓ Compiled in 3.8s (1045 modules)
+ GET /dashboard 200 in 396ms
+ GET /dashboard 200 in 71ms
+ ○ Compiling /schedules ...
+ ✓ Compiled /schedules in 613ms (566 modules)
+ GET /schedules 200 in 937ms
+ ✓ Compiled in 1855ms (1014 modules)
+ ✓ Compiled in 795ms (484 modules)
+ ✓ Compiled in 1779ms (484 modules)
+ GET /schedules 200 in 1755ms
+ GET /schedules 200 in 240ms
+ ✓ Compiled in 2.7s (1028 modules)
+ GET /schedules 200 in 541ms
+ ○ Compiling /_error ...
+ GET /schedules 500 in 1676ms
+ GET /schedules 500 in 79ms
+ GET /schedules 500 in 533ms
+ ✓ Compiled /_error in 4.5s (1167 modules)
+ GET /schedules 200 in 2565ms
+ GET /schedules 200 in 157ms
+ GET /schedules 200 in 75ms
+ ✓ Compiled in 2.2s (1085 modules)
+ GET /schedules 200 in 1377ms
+ ✓ Compiled in 2.3s (1085 modules)
+ GET /schedules 200 in 839ms
+ ✓ Compiled in 941ms (1085 modules)
+ GET /schedules 200 in 224ms
+ ✓ Compiled in 2s (1085 modules)
+ GET /schedules 200 in 1112ms
+ GET /dashboard 200 in 96ms
+ ○ Compiling /clients ...
+ ✓ Compiled /clients in 1034ms (574 modules)
+ GET /clients 200 in 1365ms
+ GET /dashboard 200 in 80ms
+ GET /onboarding 200 in 65ms
+ GET /professionals 200 in 88ms
+ GET /dashboard 200 in 66ms
+ GET /appointments/new 200 in 1282ms
+ GET /schedules 200 in 310ms
+ GET /professionals 200 in 166ms
+ ○ Compiling /services ...
+ ✓ Compiled /services in 6.6s (579 modules)
+ GET /services 200 in 7107ms
+ GET /clients 200 in 557ms
+ GET /services 200 in 243ms
+ GET /services 200 in 154ms
+ GET /dashboard 200 in 144ms
+ GET /dashboard 200 in 48ms
+ GET /schedules 200 in 48ms
+ ✓ Compiled in 4.7s (1085 modules)
+ GET /schedules 200 in 798ms
+ ✓ Compiled in 3.2s (1085 modules)
+ GET /schedules 200 in 1482ms
+ ✓ Compiled in 3.6s (1085 modules)
+ GET /schedules 200 in 638ms
+ ✓ Compiled in 4s (1085 modules)
+ GET /schedules 200 in 863ms
+ ✓ Compiled in 2.8s (1085 modules)
+ GET /schedules 200 in 1071ms
+ ✓ Compiled in 4.1s (1085 modules)
+ GET /schedules 200 in 1103ms
+ ✓ Compiled in 3.4s (1085 modules)
+ GET /schedules 200 in 507ms
+ GET /dashboard 200 in 308ms
+ GET /dashboard 200 in 171ms
+ GET /professionals 200 in 1012ms
+ GET /onboarding 200 in 443ms
+ ✓ Compiled in 21.6s (1085 modules)
+ GET /onboarding 200 in 5008ms
+ ✓ Compiled in 9.7s (1085 modules)
+ GET /onboarding 200 in 1393ms
+ ✓ Compiled in 4.2s (1085 modules)
+ GET /onboarding 200 in 872ms
+ ✓ Compiled in 5.8s (1102 modules)
+ GET /onboarding 200 in 2014ms
+ ✓ Compiled in 1868ms (1102 modules)
+   ▲ Next.js 15.5.12
+   - Local:        http://localhost:3001
+   - Network:      http://192.168.18.101:3001
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 17.3s
+ ○ Compiling /dashboard ...
+ ✓ Compiled /onboarding in 33.7s (768 modules)
+ GET /dashboard 200 in 34893ms
+ GET /onboarding 200 in 32179ms
+ GET /dashboard 200 in 102ms
+ ○ Compiling /clients ...
+ ✓ Compiled /clients in 2.4s (761 modules)
+ ○ Compiling /professionals ...
+ GET /clients 200 in 3588ms
+ ✓ Compiled /appointments/new in 5.6s (789 modules)
+ GET /appointments/new 200 in 5436ms
+ GET /professionals 200 in 7108ms
+ GET /clients 200 in 87ms
+ ○ Compiling /services ...
+ ✓ Compiled /services in 1149ms (782 modules)
+ GET /services 200 in 1392ms
+ GET /professionals 200 in 101ms
+ GET /dashboard 200 in 110ms
+ GET /dashboard 200 in 61ms
+ GET /dashboard 200 in 57ms
+ GET /onboarding 200 in 128ms
+ GET /clients 200 in 58ms
+ GET /services 200 in 56ms
+ ✓ Compiled in 12.3s (848 modules)
+ GET /services 200 in 2365ms
+ ✓ Compiled in 4.2s (848 modules)
+ GET /services 200 in 1014ms
+ GET /clients 200 in 92ms
+ ○ Compiling /appointments/new ...
+ ✓ Compiled /appointments/new in 660ms (492 modules)
+ GET /appointments/new 200 in 958ms
+ GET /appointments/new 200 in 72ms
+ GET /dashboard 200 in 62ms
+ GET /dashboard 200 in 52ms
+ GET /services 200 in 59ms
+ GET /dashboard 200 in 64ms
+ GET /onboarding 200 in 105ms
+ GET /dashboard 200 in 82ms
+ GET /dashboard 200 in 47ms
+ GET /dashboard 200 in 1002ms
+ GET /dashboard 200 in 864ms
+ GET /onboarding 200 in 626ms
+ GET /dashboard 200 in 79ms
+ ○ Compiling /whatsapp ...
+ ✓ Compiled /whatsapp in 2.3s (855 modules)
+ GET /whatsapp 200 in 3803ms
+ GET /onboarding 200 in 1505ms
+ ✓ Compiled in 1732ms (363 modules)
+ GET /onboarding 200 in 202ms
+ GET /dashboard 200 in 271ms
+ ✓ Compiled in 15.2s (850 modules)
+ GET /dashboard 200 in 3053ms
+ ✓ Compiled in 13.1s (850 modules)
+ GET /dashboard 200 in 2473ms
+ GET /onboarding 200 in 118ms
+ ○ Compiling /whatsapp ...
+ ✓ Compiled /whatsapp in 1584ms (492 modules)
+ GET /whatsapp 200 in 2011ms
+ GET /dashboard 200 in 97ms
+ ✓ Compiled in 4.6s (854 modules)
+ GET /dashboard 200 in 1304ms
+ ✓ Compiled in 1358ms (365 modules)
+ GET /dashboard 200 in 320ms
+ ✓ Compiled in 4.6s (854 modules)
+ GET /dashboard 200 in 1532ms
+ ✓ Compiled in 1566ms (365 modules)
+ GET /dashboard 200 in 216ms
+ GET /dashboard 200 in 66ms
+ GET /appointments/new 200 in 1123ms
+ GET /dashboard 200 in 311ms
+ ✓ Compiled in 18s (854 modules)
+ GET /dashboard 200 in 2107ms
+ ✓ Compiled in 2.7s (854 modules)
+ GET /dashboard 200 in 1445ms
+ ✓ Compiled in 2.1s (854 modules)
+ GET /dashboard 200 in 753ms
+ ✓ Compiled in 1895ms (854 modules)
+ GET /dashboard 200 in 485ms
+ ✓ Compiled in 1463ms (854 modules)
+ GET /dashboard 200 in 889ms
+ ✓ Compiled in 2.6s (854 modules)
+ GET /dashboard 200 in 4667ms
+ ✓ Compiled in 4.8s (854 modules)
+ GET /dashboard 200 in 2142ms
+ ✓ Compiled in 12.7s (854 modules)
+ GET /dashboard 200 in 4463ms
+ ✓ Compiled in 2.2s (854 modules)
+ GET /dashboard 200 in 629ms
+ ✓ Compiled in 4.4s (854 modules)
+ GET /dashboard 200 in 907ms
+ ✓ Compiled in 4.6s (854 modules)
+ GET /dashboard 200 in 2966ms
+ GET /onboarding 200 in 366ms
+ ✓ Compiled in 9.9s (854 modules)
+ GET /onboarding 200 in 1424ms
+ GET /dashboard 200 in 126ms
+ GET /dashboard 200 in 4714ms
+ GET /dashboard 200 in 5172ms
+ ✓ Compiled in 63.1s (854 modules)
+ GET /dashboard 200 in 2539ms
+ ✓ Compiled in 1431ms (365 modules)
+ GET /dashboard 200 in 691ms
+ ✓ Compiled in 1377ms (854 modules)
+ GET /dashboard 200 in 416ms
+ ✓ Compiled in 2.6s (854 modules)
+ GET /dashboard 200 in 723ms
+ ✓ Compiled in 1089ms (365 modules)
+ GET /dashboard 200 in 332ms
+ ✓ Compiled in 3.7s (854 modules)
+ GET /dashboard 200 in 876ms
+ ○ Compiling /schedules ...
+ ✓ Compiled /schedules in 1615ms (847 modules)
+ GET /schedules 200 in 2055ms
+ GET /schedules 200 in 105ms
+ ✓ Compiled in 2.2s (856 modules)
+ GET /schedules 200 in 1373ms
+ ✓ Compiled in 2.9s (856 modules)
+ GET /schedules 200 in 677ms
+ ✓ Compiled in 15.3s (856 modules)
+ GET /schedules 200 in 1802ms
+ ○ Compiling /professionals ...
+ ✓ Compiled /professionals in 1216ms (494 modules)
+ GET /professionals 200 in 1922ms
+ GET /professionals 200 in 148ms
+ ○ Compiling /services ...
+ ✓ Compiled /services in 1528ms (494 modules)
+ GET /services 200 in 1957ms

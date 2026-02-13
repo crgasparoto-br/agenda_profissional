@@ -70,7 +70,7 @@ export default function ProfessionalsPage() {
     async function bootstrap() {
       const { data, error: tenantError } = await supabase.rpc("auth_tenant_id");
       if (tenantError || !data) {
-        setError("Nao foi possivel resolver a organizacao atual.");
+        setError("Não foi possível resolver a organização atual.");
         return;
       }
 
@@ -288,5 +288,6 @@ export default function ProfessionalsPage() {
     </section>
   );
 }
+
 
 

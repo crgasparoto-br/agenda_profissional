@@ -102,7 +102,7 @@ export default function NewAppointmentPage() {
     });
 
     if (invokeError) {
-      setError(await getFunctionErrorMessage(invokeError, "Nao foi possivel criar o agendamento."));
+      setError(await getFunctionErrorMessage(invokeError, "Não foi possível criar o agendamento."));
       return;
     }
 
@@ -195,6 +195,7 @@ export default function NewAppointmentPage() {
     </section>
   );
 }
+
 
 
 

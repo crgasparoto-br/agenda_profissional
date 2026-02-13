@@ -4,10 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:mobile/screens/agenda_screen.dart';
 import 'package:mobile/screens/client_area_screen.dart';
+import 'package:mobile/screens/clients_screen.dart';
 import 'package:mobile/screens/create_appointment_screen.dart';
 import 'package:mobile/screens/login_screen.dart';
 import 'package:mobile/screens/onboarding_screen.dart';
 import 'package:mobile/screens/professional_menu_screen.dart';
+import 'package:mobile/screens/professionals_screen.dart';
+import 'package:mobile/screens/schedules_screen.dart';
+import 'package:mobile/screens/services_screen.dart';
+import 'package:mobile/screens/whatsapp_settings_screen.dart';
 import 'package:mobile/services/auth_service.dart';
 import 'package:mobile/theme/app_theme.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -38,6 +43,11 @@ class AgendaProfissionalApp extends StatelessWidget {
         '/agenda': (_) => const AgendaScreen(),
         '/client-area': (_) => const ClientAreaScreen(),
         '/appointments/new': (_) => const CreateAppointmentScreen(),
+        '/clients': (_) => const ClientsScreen(),
+        '/services': (_) => const ServicesScreen(),
+        '/professionals': (_) => const ProfessionalsScreen(),
+        '/schedules': (_) => const SchedulesScreen(),
+        '/whatsapp': (_) => const WhatsappSettingsScreen(),
       },
     );
   }

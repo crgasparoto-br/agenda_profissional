@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { parseAccessPath } from "@/lib/access-path";
+import { Button } from "@/components/ui/button";
 
 export default function LoginPage() {
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -26,7 +27,7 @@ export default function LoginPage() {
       return "Email ou senha invalido.";
     }
     if (alreadyRegisteredRegex.test(message)) {
-      return "Este email ja esta cadastrado. Tente entrar ou recuperar sua senha.";
+      return "Este e-mail já está cadastrado. Tente entrar ou recuperar sua senha.";
     }
     return message;
   }
@@ -53,7 +54,7 @@ export default function LoginPage() {
 
       setStatus("Enviamos um link para redefinir sua senha.");
     } catch {
-      setError("Nao foi possivel enviar a recuperacao de senha.");
+      setError("Não foi possível enviar a recuperação de senha.");
     }
   }
 
@@ -96,7 +97,7 @@ export default function LoginPage() {
             });
 
             if (signInError) {
-              setError("Este email ja esta cadastrado, mas a senha informada nao confere.");
+              setError("Este e-mail já está cadastrado, mas a senha informada não confere.");
               return;
             }
 
@@ -134,7 +135,7 @@ export default function LoginPage() {
         /failed to fetch|networkerror|network request failed/i.test(message);
 
       if (isNetworkError) {
-        setError("Nao foi possivel conectar ao servidor de autenticacao.");
+        setError("Não foi possível conectar ao servidor de autenticação.");
         return;
       }
 
@@ -150,20 +151,20 @@ export default function LoginPage() {
       <h1>{mode === "signin" ? "Login" : "Criar conta"}</h1>
 
       <div className="row">
-        <button
+        <Button
           type="button"
-          className={mode === "signin" ? "" : "secondary"}
+          variant={mode === "signin" ? "default" : "outline"}
           onClick={() => setMode("signin")}
         >
           Entrar
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className={mode === "signup" ? "" : "secondary"}
+          variant={mode === "signup" ? "default" : "outline"}
           onClick={() => setMode("signup")}
         >
           Criar usuário
-        </button>
+        </Button>
       </div>
 
       <form className="col" onSubmit={handleSubmit}>
@@ -246,7 +247,7 @@ export default function LoginPage() {
         {status ? <div className="notice">{status}</div> : null}
         {error ? <div className="error">{error}</div> : null}
 
-        <button type="submit" disabled={loading}>
+        <Button type="submit" disabled={loading}>
           {loading
             ? mode === "signin"
               ? "Entrando..."
@@ -254,11 +255,11 @@ export default function LoginPage() {
             : mode === "signin"
               ? "Entrar"
               : "Criar conta"}
-        </button>
+        </Button>
         {mode === "signin" ? (
-          <button type="button" className="secondary" onClick={handleForgotPassword} disabled={loading}>
+          <Button type="button" variant="outline" onClick={handleForgotPassword} disabled={loading}>
             Esqueci minha senha
-          </button>
+          </Button>
         ) : null}
       </form>
 
@@ -266,3 +267,4 @@ export default function LoginPage() {
     </section>
   );
 }
+

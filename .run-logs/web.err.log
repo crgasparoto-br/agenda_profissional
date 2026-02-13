@@ -1,0 +1,133 @@
+ ⚠ Port 3000 is in use by process 24012, using available port 3001 instead.
+ ⨯ ./app/globals.css:1:16
+Syntax error: C:\Dev\agenda_profissional\apps\web\app\globals.css Unknown word
+
+[1m[31m>[39m[22m[90m 1 | [39m[36m@tailwind[39m base[33m;[39m`r`n[36m@tailwind[39m components[33m;[39m`r`n[36m@tailwind[39m utilities[33m;[39m`r`n`r`n[33m:[39mroot [33m{[39m
+ [90m   | [39m               [1m[31m^[39m[22m
+ [90m 2 | [39m  color-scheme[33m:[39m light[33m;[39m
+ [90m 3 | [39m  --ap-layout-max[33m:[39m 1680px[33m;[39m
+ ⨯ ./app/globals.css:1:16
+Syntax error: C:\Dev\agenda_profissional\apps\web\app\globals.css Unknown word
+
+[1m[31m>[39m[22m[90m 1 | [39m[36m@tailwind[39m base[33m;[39m`r`n[36m@tailwind[39m components[33m;[39m`r`n[36m@tailwind[39m utilities[33m;[39m`r`n`r`n[33m:[39mroot [33m{[39m
+ [90m   | [39m               [1m[31m^[39m[22m
+ [90m 2 | [39m  color-scheme[33m:[39m light[33m;[39m
+ [90m 3 | [39m  --ap-layout-max[33m:[39m 1680px[33m;[39m
+ ⨯ ./app/globals.css
+Syntax error: C:\Dev\agenda_profissional\apps\web\app\globals.css Unknown word (1:16)
+
+[1m[31m>[39m[22m[90m 1 | [39m[36m@tailwind[39m base[33m;[39m`r`n[36m@tailwind[39m components[33m;[39m`r`n[36m@tailwind[39m utilities[33m;[39m`r`n`r`n[33m:[39mroot [33m{[39m
+ [90m   | [39m               [1m[31m^[39m[22m
+ [90m 2 | [39m  color-scheme[33m:[39m light[33m;[39m
+ [90m 3 | [39m  --ap-layout-max[33m:[39m 1680px[33m;[39m
+-- inner error --
+Syntax error: C:\Dev\agenda_profissional\apps\web\app\globals.css Unknown word (1:16)
+
+[1m[31m>[39m[22m[90m 1 | [39m[36m@tailwind[39m base[33m;[39m`r`n[36m@tailwind[39m components[33m;[39m`r`n[36m@tailwind[39m utilities[33m;[39m`r`n`r`n[33m:[39mroot [33m{[39m
+ [90m   | [39m               [1m[31m^[39m[22m
+ [90m 2 | [39m  color-scheme[33m:[39m light[33m;[39m
+ [90m 3 | [39m  --ap-layout-max[33m:[39m 1680px[33m;[39m
+Generated code for C:\Dev\agenda_profissional\node_modules\next\dist\build\webpack\loaders\css-loader\src\index.js??ruleSet[1].rules[14].oneOf[10].use[2]!C:\Dev\agenda_profissional\node_modules\next\dist\build\webpack\loaders\postcss-loader\src\index.js??ruleSet[1].rules[14].oneOf[10].use[3]!C:\Dev\agenda_profissional\apps\web\app\globals.css
+
+Import trace for requested module:
+./app/globals.css
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ⨯ ./app/schedules/page.tsx
+Error:   [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+      ,-[[36;1;4mC:\Dev\agenda_profissional\apps\web\app\schedules\page.tsx[0m:1080:1]
+ [2m1077[0m |             </div>
+ [2m1078[0m |           </div>
+ [2m1079[0m |         );
+ [2m1080[0m |       })}
+      : [35;1m      ^[0m
+ [2m1081[0m | 
+ [2m1082[0m |       {professionals.length === 0 ? <div className="card">Nenhum profissional cadastrado.</div> : null}
+ [2m1083[0m |     </section>
+      `----
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+      ,-[[36;1;4mC:\Dev\agenda_profissional\apps\web\app\schedules\page.tsx[0m:1080:1]
+ [2m1077[0m |             </div>
+ [2m1078[0m |           </div>
+ [2m1079[0m |         );
+ [2m1080[0m |       })}
+      : [35;1m        ^[0m
+ [2m1081[0m | 
+ [2m1082[0m |       {professionals.length === 0 ? <div className="card">Nenhum profissional cadastrado.</div> : null}
+ [2m1083[0m |     </section>
+      `----
+  [31mx[0m Expected '</', got 'jsx text (
+  [31m|[0m         );
+  [31m|[0m       })}
+  [31m|[0m
+  [31m|[0m       )'
+      ,-[[36;1;4mC:\Dev\agenda_profissional\apps\web\app\schedules\page.tsx[0m:1078:1]
+ [2m1075[0m |                     </button>
+ [2m1076[0m |                   )}
+ [2m1077[0m |                 </div>
+ [2m1078[0m | [35;1m,[0m[35;1m-[0m[35;1m>[0m           </div>
+ [2m1079[0m | [35;1m|[0m           );
+ [2m1080[0m | [35;1m|[0m         })}
+ [2m1081[0m | [35;1m|[0m   
+ [2m1082[0m | [35;1m`[0m[35;1m-[0m[35;1m>[0m       {professionals.length === 0 ? <div className="card">Nenhum profissional cadastrado.</div> : null}
+ [2m1083[0m |         </section>
+ [2m1084[0m |       );
+ [2m1084[0m |     }
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./app/schedules/page.tsx
+ ⨯ ./app/schedules/page.tsx
+Error:   [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+      ,-[[36;1;4mC:\Dev\agenda_profissional\apps\web\app\schedules\page.tsx[0m:1080:1]
+ [2m1077[0m |             </div>
+ [2m1078[0m |           </div>
+ [2m1079[0m |         );
+ [2m1080[0m |       })}
+      : [35;1m      ^[0m
+ [2m1081[0m | 
+ [2m1082[0m |       {professionals.length === 0 ? <div className="card">Nenhum profissional cadastrado.</div> : null}
+ [2m1083[0m |     </section>
+      `----
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+      ,-[[36;1;4mC:\Dev\agenda_profissional\apps\web\app\schedules\page.tsx[0m:1080:1]
+ [2m1077[0m |             </div>
+ [2m1078[0m |           </div>
+ [2m1079[0m |         );
+ [2m1080[0m |       })}
+      : [35;1m        ^[0m
+ [2m1081[0m | 
+ [2m1082[0m |       {professionals.length === 0 ? <div className="card">Nenhum profissional cadastrado.</div> : null}
+ [2m1083[0m |     </section>
+      `----
+  [31mx[0m Expected '</', got 'jsx text (
+  [31m|[0m         );
+  [31m|[0m       })}
+  [31m|[0m
+  [31m|[0m       )'
+      ,-[[36;1;4mC:\Dev\agenda_profissional\apps\web\app\schedules\page.tsx[0m:1078:1]
+ [2m1075[0m |                     </button>
+ [2m1076[0m |                   )}
+ [2m1077[0m |                 </div>
+ [2m1078[0m | [35;1m,[0m[35;1m-[0m[35;1m>[0m           </div>
+ [2m1079[0m | [35;1m|[0m           );
+ [2m1080[0m | [35;1m|[0m         })}
+ [2m1081[0m | [35;1m|[0m   
+ [2m1082[0m | [35;1m`[0m[35;1m-[0m[35;1m>[0m       {professionals.length === 0 ? <div className="card">Nenhum profissional cadastrado.</div> : null}
+ [2m1083[0m |         </section>
+ [2m1084[0m |       );
+ [2m1084[0m |     }
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./app/schedules/page.tsx
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ ⚠ Found a change in next.config.mjs. Restarting the server to apply the changes...

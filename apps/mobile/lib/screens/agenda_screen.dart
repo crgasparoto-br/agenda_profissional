@@ -21,6 +21,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
   final _appointmentService = AppointmentService();
 
   bool _loading = false;
+  bool _actionLoading = false;
   String? _error;
 
   List<AppointmentItem> _appointments = [];
@@ -104,12 +105,26 @@ class _AgendaScreenState extends State<AgendaScreen> {
           text: const Color(0xFF8A2E2A),
           label: 'Cancelado',
         );
-      case 'pending':
+      case 'done':
+        return (
+          background: AppColors.secondary.withValues(alpha: 0.14),
+          border: AppColors.secondary.withValues(alpha: 0.4),
+          text: const Color(0xFF0F666A),
+          label: 'Concluído',
+        );
+      case 'rescheduled':
         return (
           background: Colors.white,
           border: const Color(0xFFC9D1DA),
           text: const Color(0xFF5C6470),
-          label: 'Pendente',
+          label: 'Remarcado',
+        );
+      case 'no_show':
+        return (
+          background: AppColors.danger.withValues(alpha: 0.12),
+          border: AppColors.danger.withValues(alpha: 0.35),
+          text: const Color(0xFF8A2E2A),
+          label: 'Não compareceu',
         );
       case 'scheduled':
         return (
@@ -205,7 +220,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
   Map<String, ({int occupied, int free})> _dailyStats() {
     final days = _calendarDays();
     final occupiedByDay = <String, int>{};
-    final activeStatuses = {'scheduled', 'confirmed', 'pending'};
+    final activeStatuses = {'scheduled', 'confirmed'};
 
     for (final item in _appointments) {
       final normalizedStatus = item.status.toLowerCase();
@@ -384,13 +399,136 @@ class _AgendaScreenState extends State<AgendaScreen> {
   String _previousLabel() {
     if (_viewMode == AgendaViewMode.day) return 'Dia anterior';
     if (_viewMode == AgendaViewMode.week) return 'Semana anterior';
-    return 'Mes anterior';
+    return 'Mês anterior';
   }
 
   String _nextLabel() {
-    if (_viewMode == AgendaViewMode.day) return 'Proximo dia';
-    if (_viewMode == AgendaViewMode.week) return 'Proxima semana';
-    return 'Proximo mes';
+    if (_viewMode == AgendaViewMode.day) return 'Próximo dia';
+    if (_viewMode == AgendaViewMode.week) return 'Próxima semana';
+    return 'Próximo mês';
+  }
+
+  bool _isFinalStatus(String status) {
+    final normalized = status.toLowerCase();
+    return normalized == 'done' ||
+        normalized == 'cancelled' ||
+        normalized == 'rescheduled' ||
+        normalized == 'no_show';
+  }
+
+  Future<DateTime?> _pickRescheduleDateTime(DateTime initialUtc) async {
+    final initialLocal = initialUtc.toLocal();
+    final pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initialLocal,
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (pickedDate == null) return null;
+    if (!mounted) return null;
+
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initialLocal),
+    );
+    if (pickedTime == null) return null;
+
+    return DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    ).toUtc();
+  }
+
+  Future<void> _runStatusUpdate({
+    required String appointmentId,
+    required String status,
+    String? cancellationReason,
+    required String errorMessage,
+  }) async {
+    setState(() {
+      _actionLoading = true;
+      _error = null;
+    });
+    try {
+      await _appointmentService.updateAppointmentStatus(
+        appointmentId: appointmentId,
+        status: status,
+        cancellationReason: cancellationReason,
+      );
+      await _loadAppointments();
+    } catch (_) {
+      if (mounted) setState(() => _error = errorMessage);
+    } finally {
+      if (mounted) setState(() => _actionLoading = false);
+    }
+  }
+
+  Future<void> _handleCancel(AppointmentItem item) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Cancelar agendamento'),
+        content: const Text('Deseja realmente cancelar este agendamento?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Voltar')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Cancelar')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _runStatusUpdate(
+      appointmentId: item.id,
+      status: 'cancelled',
+      cancellationReason: 'Cancelado manualmente na agenda',
+      errorMessage: 'Erro ao cancelar agendamento',
+    );
+  }
+
+  Future<void> _handleComplete(AppointmentItem item) async {
+    await _runStatusUpdate(
+      appointmentId: item.id,
+      status: 'done',
+      errorMessage: 'Erro ao concluir agendamento',
+    );
+  }
+
+  Future<void> _handleNoShow(AppointmentItem item) async {
+    await _runStatusUpdate(
+      appointmentId: item.id,
+      status: 'no_show',
+      errorMessage: 'Erro ao marcar não compareceu',
+    );
+  }
+
+  Future<void> _handleReschedule(AppointmentItem item) async {
+    final newStartUtc = await _pickRescheduleDateTime(item.startsAt);
+    if (newStartUtc == null) return;
+
+    final blockMinutes = (item.serviceDurationMin + item.serviceIntervalMin) > 0
+        ? (item.serviceDurationMin + item.serviceIntervalMin)
+        : item.endsAt.difference(item.startsAt).inMinutes;
+    final durationMinutes = blockMinutes > 0 ? blockMinutes : 30;
+    final newEndUtc = newStartUtc.add(Duration(minutes: durationMinutes));
+
+    setState(() {
+      _actionLoading = true;
+      _error = null;
+    });
+    try {
+      await _appointmentService.rescheduleAppointment(
+        original: item,
+        newStartsAt: newStartUtc,
+        newEndsAt: newEndUtc,
+      );
+      await _loadAppointments();
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Erro ao remarcar agendamento');
+    } finally {
+      if (mounted) setState(() => _actionLoading = false);
+    }
   }
 
   Future<void> _openDay(DateTime day) async {
@@ -504,22 +642,62 @@ class _AgendaScreenState extends State<AgendaScreen> {
               subtitle: Text(
                 '${_formatTime(item.startsAt, timezone)} - ${_formatTime(item.endsAt, timezone)} (${item.professionalName})',
               ),
-              trailing: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: status.background,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: status.border),
-                ),
-                child: Text(
-                  status.label,
-                  style: TextStyle(
-                    color: status.text,
-                    fontWeight: FontWeight.w500,
-                    fontSize: 12,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: status.background,
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: status.border),
+                    ),
+                    child: Text(
+                      status.label,
+                      style: TextStyle(
+                        color: status.text,
+                        fontWeight: FontWeight.w500,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 4),
+                  PopupMenuButton<String>(
+                    enabled: !_actionLoading,
+                    onSelected: (value) async {
+                      if (value == 'reschedule') await _handleReschedule(item);
+                      if (value == 'cancel') await _handleCancel(item);
+                      if (value == 'complete') await _handleComplete(item);
+                      if (value == 'no_show') await _handleNoShow(item);
+                    },
+                    itemBuilder: (_) {
+                      final disabled = _isFinalStatus(item.status);
+                      return [
+                        PopupMenuItem(
+                          value: 'reschedule',
+                          enabled: !disabled,
+                          child: const Text('Remarcar'),
+                        ),
+                        PopupMenuItem(
+                          value: 'cancel',
+                          enabled: !disabled,
+                          child: const Text('Cancelar'),
+                        ),
+                        PopupMenuItem(
+                          value: 'complete',
+                          enabled: !disabled,
+                          child: const Text('Concluir'),
+                        ),
+                        PopupMenuItem(
+                          value: 'no_show',
+                          enabled: !disabled,
+                          child: const Text('Não compareceu'),
+                        ),
+                      ];
+                    },
+                  ),
+                ],
               ),
             ),
           );
@@ -649,7 +827,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                                 : null,
                                       ),
                                       child: Text(
-                                        'Mes',
+                                        'Mês',
                                         style: TextStyle(
                                           color:
                                               _viewMode == AgendaViewMode.month
@@ -709,8 +887,14 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                 icon: const Icon(Icons.chevron_right),
                               ),
                               const SizedBox(width: 8),
+                              OutlinedButton.icon(
+                                onPressed: _actionLoading ? null : _loadAppointments,
+                                icon: const Icon(Icons.refresh, size: 16),
+                                label: const Text('Atualizar agenda'),
+                              ),
+                              const SizedBox(width: 8),
                               SizedBox(
-                                width: 140,
+                                width: 190,
                                 child: DropdownButtonFormField<String>(
                                   initialValue: _selectedStatus,
                                   isDense: true,
@@ -729,14 +913,14 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                         value: 'confirmed',
                                         child: Text('Confirmado')),
                                     DropdownMenuItem(
-                                        value: 'pending',
-                                        child: Text('Pendente')),
-                                    DropdownMenuItem(
                                         value: 'cancelled',
                                         child: Text('Cancelado')),
                                     DropdownMenuItem(
                                         value: 'done',
-                                        child: Text('Concluido')),
+                                        child: Text('Concluído')),
+                                    DropdownMenuItem(
+                                        value: 'no_show',
+                                        child: Text('Não compareceu')),
                                   ],
                                   onChanged: (value) async {
                                     setState(

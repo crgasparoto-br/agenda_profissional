@@ -1,4 +1,8 @@
-﻿:root {
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
   color-scheme: light;
   --ap-layout-max: 1680px;
   --font-family-base: var(--font-inter), "Source Sans 3", "Segoe UI", sans-serif;
@@ -14,6 +18,31 @@
   --ap-shadow-soft: 0 10px 24px rgb(31 58 95 / 7%);
   --radius-md: 12px;
   --radius-lg: 16px;
+  --radius: 0.75rem;
+  --background: 0 0% 100%;
+  --foreground: 218 16% 22%;
+  --card: 210 20% 96%;
+  --card-foreground: 218 16% 22%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 218 16% 22%;
+  --primary: 213 51% 25%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 182 69% 39%;
+  --secondary-foreground: 0 0% 100%;
+  --muted: 210 20% 96%;
+  --muted-foreground: 216 14% 45%;
+  --accent: 27 87% 67%;
+  --accent-foreground: 218 16% 22%;
+  --destructive: 4 50% 57%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 18% 86%;
+  --input: 214 18% 86%;
+  --ring: 182 69% 39%;
+  --chart-1: 213 51% 25%;
+  --chart-2: 182 69% 39%;
+  --chart-3: 27 87% 67%;
+  --chart-4: 214 18% 86%;
+  --chart-5: 218 16% 22%;
 }
 
 *,
@@ -105,6 +134,23 @@ main {
   gap: 12px;
 }
 
+.side-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--ap-color-primary);
+  font-weight: 600;
+}
+
+.side-nav-logo {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  border-radius: 10px;
+  border: 1px solid var(--ap-color-border);
+  background: #fff;
+}
+
 .side-nav-meta {
   color: #66717f;
   font-weight: 500;
@@ -142,10 +188,32 @@ main {
   font-weight: 500;
   cursor: pointer;
   user-select: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .side-nav-menu-summary::-webkit-details-marker {
   display: none;
+}
+
+.side-nav-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #5f6b7a;
+}
+
+.side-nav-menu-icon .icon-open {
+  display: none;
+}
+
+.side-nav-menu[open] .side-nav-menu-icon .icon-closed {
+  display: none;
+}
+
+.side-nav-menu[open] .side-nav-menu-icon .icon-open {
+  display: inline;
 }
 
 .side-nav-menu-panel {
@@ -755,6 +823,14 @@ td {
   grid-column: span 2;
 }
 
+.absence-toolbar {
+  margin-bottom: 8px;
+}
+
+.absence-row-shareable {
+  background: rgb(31 164 169 / 8%);
+}
+
 .whatsapp-toggle-row {
   align-items: center;
   gap: 16px;
@@ -1061,3 +1137,5 @@ input[type="checkbox"] {
   stroke-linecap: round;
   stroke-linejoin: round;
 }
+
+

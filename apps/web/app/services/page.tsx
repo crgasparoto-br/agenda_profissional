@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 type SpecialtyRow = {
   id: string;
@@ -73,7 +74,7 @@ export default function ServicesPage() {
     async function bootstrap() {
       const { data, error: tenantError } = await supabase.rpc("auth_tenant_id");
       if (tenantError || !data) {
-        setError("Nao foi possivel resolver a organizacao atual.");
+        setError("Não foi possível resolver a organização atual.");
         return;
       }
 
@@ -306,248 +307,272 @@ export default function ServicesPage() {
         <p>Cadastre os serviços disponíveis e organize por especialidade.</p>
       </div>
 
-      <div className="card col">
-        <h2>Nova especialidade</h2>
-        <form className="row" onSubmit={handleCreateSpecialty}>
-          <input
-            placeholder="Ex.: Fisioterapia"
-            value={specialtyName}
-            onChange={(e) => setSpecialtyName(e.target.value)}
-            required
-          />
-          <button type="submit">Cadastrar especialidade</button>
-        </form>
-      </div>
+      <div className="card">
+        <Accordion type="single" collapsible>
+          <AccordionItem value="cadastros">
+            <AccordionTrigger>Cadastros</AccordionTrigger>
+            <AccordionContent>
+              <div className="col">
+                <div className="card col">
+                  <h2>Nova especialidade</h2>
+                  <form className="row" onSubmit={handleCreateSpecialty}>
+                    <input
+                      placeholder="Ex.: Fisioterapia"
+                      value={specialtyName}
+                      onChange={(e) => setSpecialtyName(e.target.value)}
+                      required
+                    />
+                    <button type="submit">Cadastrar especialidade</button>
+                  </form>
+                </div>
 
-      <div className="card col">
-        <h2>Novo serviço</h2>
-        <form className="col" onSubmit={handleCreateService}>
-          <label className="col">
-            Nome do serviço
-            <input value={serviceName} onChange={(e) => setServiceName(e.target.value)} required />
-          </label>
+                <div className="card col">
+                  <h2>Novo serviço</h2>
+                  <form className="col" onSubmit={handleCreateService}>
+                    <label className="col">
+                      Nome do serviço
+                      <input value={serviceName} onChange={(e) => setServiceName(e.target.value)} required />
+                    </label>
 
-          <div className="row">
-            <label className="col">
-              Duração (min)
-              <input
-                type="number"
-                min={1}
-                max={1440}
-                value={durationMin}
-                onChange={(e) => setDurationMin(e.target.value)}
-                required
-              />
-            </label>
-            <label className="col">
-              Intervalo (min)
-              <input
-                type="number"
-                min={0}
-                max={240}
-                value={intervalMin}
-                onChange={(e) => setIntervalMin(e.target.value)}
-                required
-              />
-            </label>
+                    <div className="row">
+                      <label className="col">
+                        Duração (min)
+                        <input
+                          type="number"
+                          min={1}
+                          max={1440}
+                          value={durationMin}
+                          onChange={(e) => setDurationMin(e.target.value)}
+                          required
+                        />
+                      </label>
+                      <label className="col">
+                        Intervalo (min)
+                        <input
+                          type="number"
+                          min={0}
+                          max={240}
+                          value={intervalMin}
+                          onChange={(e) => setIntervalMin(e.target.value)}
+                          required
+                        />
+                      </label>
 
-            <label className="col">
-              Preço (R$)
-              <input type="number" min={0} step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} />
-            </label>
+                      <label className="col">
+                        Preço (R$)
+                        <input type="number" min={0} step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} />
+                      </label>
 
-            <label className="col">
-              Especialidade (opcional)
-              <select value={serviceSpecialtyId} onChange={(e) => setServiceSpecialtyId(e.target.value)}>
-                <option value="">Sem especialidade</option>
-                {specialties
-                  .filter((item) => item.active)
-                  .map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-          </div>
+                      <label className="col">
+                        Especialidade (opcional)
+                        <select value={serviceSpecialtyId} onChange={(e) => setServiceSpecialtyId(e.target.value)}>
+                          <option value="">Sem especialidade</option>
+                          {specialties
+                            .filter((item) => item.active)
+                            .map((item) => (
+                              <option key={item.id} value={item.id}>
+                                {item.name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                    </div>
 
-          <button type="submit">Cadastrar serviço</button>
-        </form>
+                    <button type="submit">Cadastrar serviço</button>
+                  </form>
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </div>
 
       {status ? <div className="notice">{status}</div> : null}
       {error ? <div className="error">{error}</div> : null}
 
       <div className="card">
-        <h2>Especialidades</h2>
-        <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>Status</th>
-              <th>Ação</th>
-            </tr>
-          </thead>
-          <tbody>
-            {specialties.map((item) => (
-              <tr key={item.id}>
-                <td>
-                  {editingSpecialtyId === item.id ? (
-                    <input value={editSpecialtyName} onChange={(e) => setEditSpecialtyName(e.target.value)} />
-                  ) : (
-                    item.name
-                  )}
-                </td>
-                <td>{item.active ? "Ativa" : "Inativa"}</td>
-                <td>
-                  <div className="row actions-row">
-                    {editingSpecialtyId === item.id ? (
-                      <>
-                        <button type="button" onClick={() => saveEditingSpecialty(item)}>
-                          Salvar
-                        </button>
-                        <button type="button" className="secondary" onClick={cancelEditingSpecialty}>
-                          Cancelar
-                        </button>
-                      </>
-                    ) : (
-                      <button type="button" className="secondary" onClick={() => startEditingSpecialty(item)}>
-                        Editar
-                      </button>
-                    )}
-                    <button type="button" className="secondary" onClick={() => toggleSpecialtyActive(item)}>
-                      {item.active ? "Desativar" : "Ativar"}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {specialties.length === 0 ? (
-              <tr>
-                <td colSpan={3}>Nenhuma especialidade cadastrada.</td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-        </div>
+        <Accordion type="single" collapsible>
+          <AccordionItem value="especialidades">
+            <AccordionTrigger>Especialidades</AccordionTrigger>
+            <AccordionContent>
+              <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>Status</th>
+                    <th>Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {specialties.map((item) => (
+                    <tr key={item.id}>
+                      <td>
+                        {editingSpecialtyId === item.id ? (
+                          <input value={editSpecialtyName} onChange={(e) => setEditSpecialtyName(e.target.value)} />
+                        ) : (
+                          item.name
+                        )}
+                      </td>
+                      <td>{item.active ? "Ativa" : "Inativa"}</td>
+                      <td>
+                        <div className="row actions-row">
+                          {editingSpecialtyId === item.id ? (
+                            <>
+                              <button type="button" onClick={() => saveEditingSpecialty(item)}>
+                                Salvar
+                              </button>
+                              <button type="button" className="secondary" onClick={cancelEditingSpecialty}>
+                                Cancelar
+                              </button>
+                            </>
+                          ) : (
+                            <button type="button" className="secondary" onClick={() => startEditingSpecialty(item)}>
+                              Editar
+                            </button>
+                          )}
+                          <button type="button" className="secondary" onClick={() => toggleSpecialtyActive(item)}>
+                            {item.active ? "Desativar" : "Ativar"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {specialties.length === 0 ? (
+                    <tr>
+                      <td colSpan={3}>Nenhuma especialidade cadastrada.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </div>
 
       <div className="card">
-        <h2>Serviços</h2>
-        <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Nome</th>
-              <th>Duração</th>
-              <th>Intervalo</th>
-              <th>Preço</th>
-              <th>Especialidade</th>
-              <th>Status</th>
-              <th>Ação</th>
-            </tr>
-          </thead>
-          <tbody>
-            {services.map((item) => (
-              <tr key={item.id}>
-                <td>
-                  {editingServiceId === item.id ? (
-                    <input value={editServiceName} onChange={(e) => setEditServiceName(e.target.value)} />
-                  ) : (
-                    item.name
-                  )}
-                </td>
-                <td>
-                  {editingServiceId === item.id ? (
-                    <input
-                      type="number"
-                      min={1}
-                      max={1440}
-                      value={editDurationMin}
-                      onChange={(e) => setEditDurationMin(e.target.value)}
-                    />
-                  ) : (
-                    `${item.duration_min} min`
-                  )}
-                </td>
-                <td>
-                  {editingServiceId === item.id ? (
-                    <input
-                      type="number"
-                      min={0}
-                      max={240}
-                      value={editIntervalMin}
-                      onChange={(e) => setEditIntervalMin(e.target.value)}
-                    />
-                  ) : (
-                    `${item.interval_min} min`
-                  )}
-                </td>
-                <td>
-                  {editingServiceId === item.id ? (
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={editPrice}
-                      onChange={(e) => setEditPrice(e.target.value)}
-                    />
-                  ) : item.price_cents === null ? (
-                    "-"
-                  ) : (
-                    `R$ ${(item.price_cents / 100).toFixed(2)}`
-                  )}
-                </td>
-                <td>
-                  {editingServiceId === item.id ? (
-                    <select value={editServiceSpecialtyId} onChange={(e) => setEditServiceSpecialtyId(e.target.value)}>
-                      <option value="">Sem especialidade</option>
-                      {specialties.map((specialty) => (
-                        <option key={specialty.id} value={specialty.id}>
-                          {specialty.name}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    item.specialties?.name ?? "-"
-                  )}
-                </td>
-                <td>{item.active ? "Ativo" : "Inativo"}</td>
-                <td>
-                  <div className="row actions-row">
-                    {editingServiceId === item.id ? (
-                      <>
-                        <button type="button" onClick={() => saveEditingService(item)}>
-                          Salvar
-                        </button>
-                        <button type="button" className="secondary" onClick={cancelEditingService}>
-                          Cancelar
-                        </button>
-                      </>
-                    ) : (
-                      <button type="button" className="secondary" onClick={() => startEditingService(item)}>
-                        Editar
-                      </button>
-                    )}
-                    <button type="button" className="secondary" onClick={() => toggleServiceActive(item)}>
-                      {item.active ? "Desativar" : "Ativar"}
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-            {services.length === 0 ? (
-              <tr>
-                <td colSpan={7}>Nenhum serviço cadastrado.</td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
-        </div>
+        <Accordion type="single" collapsible>
+          <AccordionItem value="servicos">
+            <AccordionTrigger>Serviços</AccordionTrigger>
+            <AccordionContent>
+              <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Nome</th>
+                    <th>Duração</th>
+                    <th>Intervalo</th>
+                    <th>Preço</th>
+                    <th>Especialidade</th>
+                    <th>Status</th>
+                    <th>Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {services.map((item) => (
+                    <tr key={item.id}>
+                      <td>
+                        {editingServiceId === item.id ? (
+                          <input value={editServiceName} onChange={(e) => setEditServiceName(e.target.value)} />
+                        ) : (
+                          item.name
+                        )}
+                      </td>
+                      <td>
+                        {editingServiceId === item.id ? (
+                          <input
+                            type="number"
+                            min={1}
+                            max={1440}
+                            value={editDurationMin}
+                            onChange={(e) => setEditDurationMin(e.target.value)}
+                          />
+                        ) : (
+                          `${item.duration_min} min`
+                        )}
+                      </td>
+                      <td>
+                        {editingServiceId === item.id ? (
+                          <input
+                            type="number"
+                            min={0}
+                            max={240}
+                            value={editIntervalMin}
+                            onChange={(e) => setEditIntervalMin(e.target.value)}
+                          />
+                        ) : (
+                          `${item.interval_min} min`
+                        )}
+                      </td>
+                      <td>
+                        {editingServiceId === item.id ? (
+                          <input
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={editPrice}
+                            onChange={(e) => setEditPrice(e.target.value)}
+                          />
+                        ) : item.price_cents === null ? (
+                          "-"
+                        ) : (
+                          `R$ ${(item.price_cents / 100).toFixed(2)}`
+                        )}
+                      </td>
+                      <td>
+                        {editingServiceId === item.id ? (
+                          <select value={editServiceSpecialtyId} onChange={(e) => setEditServiceSpecialtyId(e.target.value)}>
+                            <option value="">Sem especialidade</option>
+                            {specialties.map((specialty) => (
+                              <option key={specialty.id} value={specialty.id}>
+                                {specialty.name}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          item.specialties?.name ?? "-"
+                        )}
+                      </td>
+                      <td>{item.active ? "Ativo" : "Inativo"}</td>
+                      <td>
+                        <div className="row actions-row">
+                          {editingServiceId === item.id ? (
+                            <>
+                              <button type="button" onClick={() => saveEditingService(item)}>
+                                Salvar
+                              </button>
+                              <button type="button" className="secondary" onClick={cancelEditingService}>
+                                Cancelar
+                              </button>
+                            </>
+                          ) : (
+                            <button type="button" className="secondary" onClick={() => startEditingService(item)}>
+                              Editar
+                            </button>
+                          )}
+                          <button type="button" className="secondary" onClick={() => toggleServiceActive(item)}>
+                            {item.active ? "Desativar" : "Ativar"}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {services.length === 0 ? (
+                    <tr>
+                      <td colSpan={7}>Nenhum serviço cadastrado.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </div>
     </section>
   );
 }
+
 
 

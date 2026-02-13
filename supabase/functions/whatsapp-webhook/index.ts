@@ -50,6 +50,8 @@ type UnavailabilityRow = {
   professional_id: string;
   starts_at: string;
   ends_at: string;
+  reason: string | null;
+  share_reason_with_client: boolean;
 };
 
 type AppointmentWindowRow = {
@@ -88,6 +90,7 @@ type AppointmentExecutionResult = {
   startsAtIso?: string;
   professionalName?: string;
   serviceName?: string;
+  cancellationOptions?: CancellationOption[];
 };
 
 type TenantChannelConfig = {
@@ -196,6 +199,27 @@ function hasUnavailabilityOverlap(
     if (Number.isNaN(absenceStart.getTime()) || Number.isNaN(absenceEnd.getTime())) return true;
     return startsAt < absenceEnd && absenceStart < endsAt;
   });
+}
+
+function findOverlappingUnavailability(
+  unavailabilityRows: UnavailabilityRow[] | undefined,
+  startsAtIso: string,
+  endsAtIso: string
+): UnavailabilityRow | null {
+  if (!unavailabilityRows || unavailabilityRows.length === 0) return null;
+  const startsAt = new Date(startsAtIso);
+  const endsAt = new Date(endsAtIso);
+  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) return null;
+
+  for (const item of unavailabilityRows) {
+    const absenceStart = new Date(item.starts_at);
+    const absenceEnd = new Date(item.ends_at);
+    if (Number.isNaN(absenceStart.getTime()) || Number.isNaN(absenceEnd.getTime())) continue;
+    if (startsAt < absenceEnd && absenceStart < endsAt) {
+      return item;
+    }
+  }
+  return null;
 }
 
 function isWithinSchedule(
@@ -512,8 +536,59 @@ function looksLikeRescheduleRequest(rawText: string): boolean {
     normalized.includes("remarcacao") ||
     normalized.includes("alterar meu horario") ||
     normalized.includes("alterar horario") ||
+    normalized.includes("alterar minha consulta") ||
+    normalized.includes("alterar a minha consulta") ||
+    normalized.includes("alterar consulta") ||
+    normalized.includes("alterar meu agendamento") ||
+    normalized.includes("alterar meu horario") ||
+    normalized.includes("alterar agendamento") ||
+    normalized.includes("mudar consulta") ||
+    normalized.includes("trocar consulta") ||
+    normalized.includes("mudar agendamento") ||
+    normalized.includes("trocar agendamento") ||
     normalized.includes("mudar horario") ||
     normalized.includes("trocar horario")
+  );
+}
+
+function looksLikeCancelRequest(rawText: string): boolean {
+  const normalized = normalizeText(rawText);
+  if (!normalized) return false;
+  return (
+    normalized.includes("cancelar") ||
+    normalized.includes("cancele") ||
+    normalized.includes("cancelamento") ||
+    normalized.includes("desmarcar") ||
+    normalized.includes("desmarque")
+  );
+}
+
+function looksLikeCancelAllRequest(rawText: string): boolean {
+  const normalized = normalizeText(rawText);
+  if (!normalized) return false;
+  const hasCancelVerb =
+    normalized.includes("cancelar") ||
+    normalized.includes("cancele") ||
+    normalized.includes("desmarcar") ||
+    normalized.includes("desmarque");
+  const hasAllWord =
+    normalized.includes("todas") ||
+    normalized.includes("todos") ||
+    normalized.includes("tudo");
+  return hasCancelVerb && hasAllWord;
+}
+
+function looksLikeAfterMyAppointmentRequest(rawText: string): boolean {
+  const normalized = normalizeText(rawText);
+  if (!normalized) return false;
+  return (
+    normalized.includes("logo apos a minha") ||
+    normalized.includes("logo apos da minha") ||
+    normalized.includes("apos a minha") ||
+    normalized.includes("depois da minha") ||
+    normalized.includes("depois da minha consulta") ||
+    normalized.includes("depois do meu horario") ||
+    normalized.includes("apos meu horario")
   );
 }
 
@@ -604,7 +679,7 @@ async function loadAvailabilityContext(
       .eq("tenant_id", tenantId),
     admin
       .from("professional_unavailability")
-      .select("professional_id, starts_at, ends_at")
+      .select("professional_id, starts_at, ends_at, reason, share_reason_with_client")
       .eq("tenant_id", tenantId),
     professionalIds.length > 0
       ? admin
@@ -800,6 +875,74 @@ function formatDateTimePtBrInTimezone(iso: string, timezone: string): string {
   }).format(dt);
 }
 
+function looksLikeSameTimeRequest(rawText: string): boolean {
+  const normalized = normalizeText(rawText);
+  if (!normalized) return false;
+  return (
+    normalized.includes("mesmo horario") ||
+    normalized.includes("mesmo horário") ||
+    normalized.includes("no mesmo horario") ||
+    normalized.includes("no mesmo horário")
+  );
+}
+
+function mergeDateWithReferenceTimeInTimezone(
+  dateIso: string,
+  referenceTimeIso: string,
+  timezone: string
+): string | null {
+  const date = new Date(dateIso);
+  const reference = new Date(referenceTimeIso);
+  if (Number.isNaN(date.getTime()) || Number.isNaN(reference.getTime())) return null;
+
+  const dayParts = getDateTimePartsInTimezone(date, timezone);
+  const refParts = getDateTimePartsInTimezone(reference, timezone);
+  if (
+    !Number.isFinite(dayParts.year) ||
+    !Number.isFinite(dayParts.month) ||
+    !Number.isFinite(dayParts.day) ||
+    !Number.isFinite(refParts.hour) ||
+    !Number.isFinite(refParts.minute)
+  ) {
+    return null;
+  }
+
+  const yyyy = String(dayParts.year).padStart(4, "0");
+  const mm = String(dayParts.month).padStart(2, "0");
+  const dd = String(dayParts.day).padStart(2, "0");
+  const hh = String(refParts.hour).padStart(2, "0");
+  const mi = String(refParts.minute).padStart(2, "0");
+  return localDateTimeInTimezoneToIso(`${yyyy}-${mm}-${dd}T${hh}:${mi}`, timezone);
+}
+
+function mergeDateWithTimeInTimezone(
+  dateIso: string,
+  hour: number,
+  minute: number,
+  timezone: string
+): string | null {
+  const date = new Date(dateIso);
+  if (Number.isNaN(date.getTime())) return null;
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
+
+  const dayParts = getDateTimePartsInTimezone(date, timezone);
+  if (
+    !Number.isFinite(dayParts.year) ||
+    !Number.isFinite(dayParts.month) ||
+    !Number.isFinite(dayParts.day)
+  ) {
+    return null;
+  }
+
+  const yyyy = String(dayParts.year).padStart(4, "0");
+  const mm = String(dayParts.month).padStart(2, "0");
+  const dd = String(dayParts.day).padStart(2, "0");
+  const hh = String(hour).padStart(2, "0");
+  const mi = String(minute).padStart(2, "0");
+  return localDateTimeInTimezoneToIso(`${yyyy}-${mm}-${dd}T${hh}:${mi}`, timezone);
+}
+
 function getDateTimePartsInTimezone(date: Date, timezone: string) {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: timezone,
@@ -896,6 +1039,16 @@ type SuggestedOption = {
   ends_at_iso: string;
 };
 
+type CancellationOption = {
+  option_index: number;
+  appointment_id: string;
+  service_id: string | null;
+  service_name: string;
+  professional_id: string | null;
+  professional_name: string;
+  starts_at_iso: string;
+};
+
 type PeriodPreference = "morning" | "afternoon" | "evening" | "late_day" | null;
 type RelativeDayPreference = "today" | "tomorrow" | null;
 type WeekdayPreference = 0 | 1 | 2 | 3 | 4 | 5 | 6 | null;
@@ -919,6 +1072,25 @@ function parseSelectedOptionIndex(rawText: string): number | null {
   }
 
   return null;
+}
+
+function looksLikeAffirmativeContinuation(rawText: string): boolean {
+  const normalized = normalizeText(rawText);
+  if (!normalized) return false;
+
+  return (
+    normalized === "sim" ||
+    normalized === "ss" ||
+    normalized === "ok" ||
+    normalized === "pode" ||
+    normalized === "pode sim" ||
+    normalized === "claro" ||
+    normalized === "isso" ||
+    normalized === "pode ser" ||
+    normalized.includes("sim pode") ||
+    normalized.includes("pode buscar") ||
+    normalized.includes("pode procurar")
+  );
 }
 
 function detectPeriodPreference(rawText: string): PeriodPreference {
@@ -963,19 +1135,6 @@ function detectRelativeDayPreference(rawText: string): RelativeDayPreference {
   if (normalized.includes("amanha") || normalized.includes("amanhã")) return "tomorrow";
   if (normalized.includes("hoje")) return "today";
 
-  // "fim do dia" normalmente implica hoje quando o cliente não informa data.
-  if (
-    normalized.includes("fim do dia") ||
-    normalized.includes("final do dia") ||
-    normalized.includes("fim da tarde") ||
-    normalized.includes("final da tarde") ||
-    normalized.includes("fim de tarde") ||
-    normalized.includes("fim do expediente") ||
-    normalized.includes("mais para o fim do dia")
-  ) {
-    return "today";
-  }
-
   return null;
 }
 
@@ -984,7 +1143,90 @@ function hasExplicitDateInText(rawText: string): boolean {
   if (!normalized) return false;
   if (/\b\d{1,2}[\/-]\d{1,2}(?:[\/-]\d{2,4})?\b/.test(normalized)) return true;
   if (/\b\d{4}[\/-]\d{1,2}[\/-]\d{1,2}\b/.test(normalized)) return true;
+  if (/\bdia\s+\d{1,2}\b/.test(normalized)) return true;
+  if (/\bdi\s+\d{1,2}\b/.test(normalized)) return true;
+  if (/\b\d{1,2}\s+de\s+[a-zç]+\b/.test(normalized)) return true;
   return false;
+}
+
+function extractExplicitTimeInText(rawText: string): { hour: number; minute: number } | null {
+  const normalized = normalizeText(rawText);
+  if (!normalized) return null;
+
+  const hourMinute = normalized.match(/\b([01]?\d|2[0-3])\s*[:h]\s*([0-5]\d)\b/);
+  if (hourMinute) {
+    return {
+      hour: Number.parseInt(hourMinute[1], 10),
+      minute: Number.parseInt(hourMinute[2], 10)
+    };
+  }
+
+  const hourOnlyWithH = normalized.match(/\b([01]?\d|2[0-3])\s*h(?:s)?\b/);
+  if (hourOnlyWithH) {
+    return {
+      hour: Number.parseInt(hourOnlyWithH[1], 10),
+      minute: 0
+    };
+  }
+
+  const hourOnlyWithWords = normalized.match(/\b([01]?\d|2[0-3])\s*horas?\b/);
+  if (hourOnlyWithWords) {
+    return {
+      hour: Number.parseInt(hourOnlyWithWords[1], 10),
+      minute: 0
+    };
+  }
+
+  const hourOnlyWithAs = normalized.match(/\bas\s+([01]?\d|2[0-3])\b/);
+  if (hourOnlyWithAs) {
+    return {
+      hour: Number.parseInt(hourOnlyWithAs[1], 10),
+      minute: 0
+    };
+  }
+
+  return null;
+}
+
+function extractExplicitDateIsoInTimezone(rawText: string, timezone: string): string | null {
+  const normalized = normalizeText(rawText);
+  if (!normalized) return null;
+
+  const nowParts = getDateTimePartsInTimezone(new Date(), timezone);
+  let year = nowParts.year;
+  let month = nowParts.month;
+  let day: number | null = null;
+
+  const dateSlash = normalized.match(/\b(\d{1,2})[\/-](\d{1,2})(?:[\/-](\d{2,4}))?\b/);
+  if (dateSlash) {
+    day = Number.parseInt(dateSlash[1], 10);
+    month = Number.parseInt(dateSlash[2], 10);
+    if (dateSlash[3]) {
+      const yy = Number.parseInt(dateSlash[3], 10);
+      year = yy < 100 ? 2000 + yy : yy;
+    }
+  } else {
+    const dayOnly = normalized.match(/\b(?:dia|di)\s+(\d{1,2})\b/);
+    if (dayOnly) {
+      day = Number.parseInt(dayOnly[1], 10);
+    }
+  }
+
+  if (!day || day < 1 || day > 31 || month < 1 || month > 12) return null;
+
+  // If the user says only day number and it's already passed in current month, roll to next month.
+  if (!dateSlash && day < nowParts.day) {
+    month += 1;
+    if (month > 12) {
+      month = 1;
+      year += 1;
+    }
+  }
+
+  const yyyy = String(year).padStart(4, "0");
+  const mm = String(month).padStart(2, "0");
+  const dd = String(day).padStart(2, "0");
+  return localDateTimeInTimezoneToIso(`${yyyy}-${mm}-${dd}T09:00`, timezone);
 }
 
 function detectWeekdayPreference(rawText: string): WeekdayPreference {
@@ -1076,6 +1318,18 @@ function isSameLocalDayInTimezone(isoA: string, isoB: string, timezone: string):
   const a = getDateTimePartsInTimezone(dateA, timezone);
   const b = getDateTimePartsInTimezone(dateB, timezone);
   return a.year === b.year && a.month === b.month && a.day === b.day;
+}
+
+function isOnOrAfterLocalDayInTimezone(isoValue: string, anchorIso: string, timezone: string): boolean {
+  const date = new Date(isoValue);
+  const anchorDate = new Date(anchorIso);
+  if (Number.isNaN(date.getTime()) || Number.isNaN(anchorDate.getTime())) return false;
+
+  const valueParts = getDateTimePartsInTimezone(date, timezone);
+  const anchorParts = getDateTimePartsInTimezone(anchorDate, timezone);
+  const valueDay = Date.UTC(valueParts.year, valueParts.month - 1, valueParts.day);
+  const anchorDay = Date.UTC(anchorParts.year, anchorParts.month - 1, anchorParts.day);
+  return valueDay >= anchorDay;
 }
 
 function isWeekdayInTimezone(isoValue: string, timezone: string, weekday: WeekdayPreference): boolean {
@@ -1173,6 +1427,64 @@ async function loadLatestSuggestedOptions(
   return [];
 }
 
+async function loadLatestCancellationOptions(
+  admin: ReturnType<typeof createClient>,
+  tenantId: string,
+  conversationId: string
+): Promise<CancellationOption[]> {
+  const { data } = await admin
+    .from("whatsapp_messages")
+    .select("ai_payload")
+    .eq("tenant_id", tenantId)
+    .eq("conversation_id", conversationId)
+    .eq("direction", "outbound")
+    .order("created_at", { ascending: false })
+    .limit(6);
+
+  const rows = (data ?? []) as Array<{ ai_payload?: unknown }>;
+  for (const row of rows) {
+    const payload = row.ai_payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue;
+    const options = (payload as Record<string, unknown>).cancellation_options;
+    if (!Array.isArray(options) || options.length === 0) continue;
+
+    const parsed = options
+      .map((item) => {
+        if (!item || typeof item !== "object" || Array.isArray(item)) return null;
+        const value = item as Record<string, unknown>;
+        const optionIndex = Number(value.option_index);
+        const appointmentId = toNullableString(value.appointment_id);
+        const serviceName = toNullableString(value.service_name);
+        const professionalName = toNullableString(value.professional_name);
+        const startsAtIso = toIsoOrNull(value.starts_at_iso);
+        if (
+          !Number.isInteger(optionIndex) ||
+          optionIndex <= 0 ||
+          !appointmentId ||
+          !serviceName ||
+          !professionalName ||
+          !startsAtIso
+        ) {
+          return null;
+        }
+        return {
+          option_index: optionIndex,
+          appointment_id: appointmentId,
+          service_id: toNullableString(value.service_id),
+          service_name: serviceName,
+          professional_id: toNullableString(value.professional_id),
+          professional_name: professionalName,
+          starts_at_iso: startsAtIso
+        } as CancellationOption;
+      })
+      .filter((item): item is CancellationOption => item !== null);
+
+    if (parsed.length > 0) return parsed;
+  }
+
+  return [];
+}
+
 async function inferRescheduleContext(
   admin: ReturnType<typeof createClient>,
   tenantId: string,
@@ -1180,12 +1492,14 @@ async function inferRescheduleContext(
   catalog: TenantCatalog
 ): Promise<{
   appointmentId: string;
+  startsAtIso: string;
+  endsAtIso: string;
   service: ServiceItem | null;
   professional: ProfessionalItem | null;
 } | null> {
   const { data } = await admin
     .from("appointments")
-    .select("id, service_id, professional_id, starts_at")
+    .select("id, service_id, professional_id, starts_at, ends_at")
     .eq("tenant_id", tenantId)
     .eq("client_id", clientId)
     .in("status", ACTIVE_APPOINTMENT_STATUSES)
@@ -1195,7 +1509,13 @@ async function inferRescheduleContext(
     .maybeSingle();
 
   if (!data) return null;
-  const row = data as { id: string; service_id: string | null; professional_id: string | null };
+  const row = data as {
+    id: string;
+    starts_at: string;
+    ends_at: string;
+    service_id: string | null;
+    professional_id: string | null;
+  };
   const service = row.service_id ? catalog.services.find((item) => item.id === row.service_id) ?? null : null;
   const professional = row.professional_id
     ? catalog.professionals.find((item) => item.id === row.professional_id) ?? null
@@ -1203,9 +1523,124 @@ async function inferRescheduleContext(
 
   return {
     appointmentId: row.id,
+    startsAtIso: row.starts_at,
+    endsAtIso: row.ends_at,
     service,
     professional
   };
+}
+
+async function inferAfterMyAppointmentContext(
+  admin: ReturnType<typeof createClient>,
+  tenantId: string,
+  clientId: string,
+  catalog: TenantCatalog,
+  rawText: string,
+  preferredStartsAtIso?: string | null
+): Promise<{
+  appointmentId: string;
+  startsAtIso: string;
+  endsAtIso: string;
+  service: ServiceItem | null;
+  professional: ProfessionalItem | null;
+} | null> {
+  const { data } = await admin
+    .from("appointments")
+    .select("id, service_id, professional_id, starts_at, ends_at")
+    .eq("tenant_id", tenantId)
+    .eq("client_id", clientId)
+    .in("status", ACTIVE_APPOINTMENT_STATUSES)
+    .gte("starts_at", new Date().toISOString())
+    .order("starts_at", { ascending: true })
+    .limit(10);
+
+  const rows = (data ?? []) as Array<{
+    id: string;
+    service_id: string | null;
+    professional_id: string | null;
+    starts_at: string;
+    ends_at: string;
+  }>;
+  if (rows.length === 0) return null;
+
+  const normalizedText = normalizeText(rawText);
+  const matching = rows.filter((row) => {
+    if (!row.service_id) return false;
+    const service = catalog.services.find((item) => item.id === row.service_id);
+    if (!service) return false;
+    return normalizedText.includes(normalizeText(service.name));
+  });
+
+  const pool = matching.length > 0 ? matching : rows;
+  const timezone = "America/Sao_Paulo";
+  const sameDayPool =
+    preferredStartsAtIso
+      ? pool.filter((row) => isSameLocalDayInTimezone(row.starts_at, preferredStartsAtIso, timezone))
+      : [];
+  const selectionPool = sameDayPool.length > 0 ? sameDayPool : pool;
+
+  let selected = selectionPool[0];
+  if (preferredStartsAtIso) {
+    let bestDiff = Number.POSITIVE_INFINITY;
+    const preferredMs = new Date(preferredStartsAtIso).getTime();
+    for (const row of selectionPool) {
+      const rowMs = new Date(row.starts_at).getTime();
+      if (!Number.isFinite(rowMs) || !Number.isFinite(preferredMs)) continue;
+      const diff = Math.abs(rowMs - preferredMs);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        selected = row;
+      }
+    }
+  }
+
+  const service = selected.service_id
+    ? catalog.services.find((item) => item.id === selected.service_id) ?? null
+    : null;
+  const professional = selected.professional_id
+    ? catalog.professionals.find((item) => item.id === selected.professional_id) ?? null
+    : null;
+
+  return {
+    appointmentId: selected.id,
+    startsAtIso: selected.starts_at,
+    endsAtIso: selected.ends_at,
+    service,
+    professional
+  };
+}
+
+async function inferConversationAnchorStartsAtIso(
+  admin: ReturnType<typeof createClient>,
+  tenantId: string,
+  conversationId: string
+): Promise<string | null> {
+  const { data } = await admin
+    .from("whatsapp_messages")
+    .select("ai_payload")
+    .eq("tenant_id", tenantId)
+    .eq("conversation_id", conversationId)
+    .eq("direction", "outbound")
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  const rows = (data ?? []) as Array<{ ai_payload?: unknown }>;
+  for (const row of rows) {
+    const payload = row.ai_payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue;
+    const rec = payload as Record<string, unknown>;
+    const decision = rec.decision;
+    if (decision && typeof decision === "object" && !Array.isArray(decision)) {
+      const decisionStarts = toIsoOrNull((decision as Record<string, unknown>).starts_at_iso);
+      if (decisionStarts) return decisionStarts;
+    }
+    const action = rec.action_result;
+    if (action && typeof action === "object" && !Array.isArray(action)) {
+      const actionStarts = toIsoOrNull((action as Record<string, unknown>).startsAtIso);
+      if (actionStarts) return actionStarts;
+    }
+  }
+  return null;
 }
 
 async function inferRecentDecisionContext(
@@ -1242,6 +1677,86 @@ async function inferRecentDecisionContext(
     if (service || professional) {
       return { service, professional };
     }
+  }
+
+  return null;
+}
+
+async function inferPendingNextOptionContext(
+  admin: ReturnType<typeof createClient>,
+  tenantId: string,
+  conversationId: string,
+  catalog: TenantCatalog
+): Promise<{
+  service: ServiceItem;
+  professional: ProfessionalItem | null;
+  anyAvailable: boolean;
+  targetAppointmentId: string | null;
+  requestedStartsAtIso: string | null;
+  targetStartsAtIso: string | null;
+} | null> {
+  const { data } = await admin
+    .from("whatsapp_messages")
+    .select("message_text, ai_payload")
+    .eq("tenant_id", tenantId)
+    .eq("conversation_id", conversationId)
+    .eq("direction", "outbound")
+    .order("created_at", { ascending: false })
+    .limit(6);
+
+  const rows = (data ?? []) as Array<{ message_text?: string | null; ai_payload?: unknown }>;
+  for (const row of rows) {
+    const messageText = normalizeText(row.message_text ?? "");
+    const payload = row.ai_payload;
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue;
+    const rec = payload as Record<string, unknown>;
+    const decisionRaw = rec.decision;
+    const actionRaw = rec.action_result;
+    if (!decisionRaw || typeof decisionRaw !== "object" || Array.isArray(decisionRaw)) continue;
+    if (!actionRaw || typeof actionRaw !== "object" || Array.isArray(actionRaw)) continue;
+
+    const decision = decisionRaw as Record<string, unknown>;
+    const action = actionRaw as Record<string, unknown>;
+    const actionOk = action.ok === true;
+    if (actionOk) continue;
+
+    const actionMessage = normalizeText(toNullableString(action.message) ?? "");
+    const asksNextOption =
+      messageText.includes("posso buscar a proxima opcao") ||
+      actionMessage.includes("posso buscar a proxima opcao");
+    if (!asksNextOption) continue;
+
+    const serviceId = toNullableString(decision.service_id);
+    if (!serviceId) continue;
+    const service = catalog.services.find((item) => item.id === serviceId) ?? null;
+    if (!service) continue;
+
+    const professionalId = toNullableString(decision.professional_id);
+    const professional =
+      professionalId ? catalog.professionals.find((item) => item.id === professionalId) ?? null : null;
+    const targetAppointmentId = toNullableString(decision.target_appointment_id);
+    const requestedStartsAtIso = toIsoOrNull(decision.starts_at_iso);
+    let targetStartsAtIso: string | null = null;
+
+    if (targetAppointmentId) {
+      const { data: targetRow } = await admin
+        .from("appointments")
+        .select("starts_at")
+        .eq("tenant_id", tenantId)
+        .eq("id", targetAppointmentId)
+        .limit(1)
+        .maybeSingle();
+      targetStartsAtIso = toIsoOrNull((targetRow as { starts_at?: unknown } | null)?.starts_at ?? null);
+    }
+
+    return {
+      service,
+      professional,
+      anyAvailable: professional ? false : true,
+      targetAppointmentId,
+      requestedStartsAtIso,
+      targetStartsAtIso
+    };
   }
 
   return null;
@@ -1313,7 +1828,8 @@ async function createAppointmentFromDecision(
   clientId: string,
   catalog: TenantCatalog,
   decision: IntentDecision,
-  availability: AvailabilityContext | null
+  availability: AvailabilityContext | null,
+  options?: { disableTimezoneReinterpretation?: boolean }
 ): Promise<AppointmentExecutionResult> {
   const service = resolveService(catalog, decision);
   if (!service) {
@@ -1352,15 +1868,17 @@ async function createAppointmentFromDecision(
     endsAtIso: new Date(startsAt.getTime() + (durationMin + intervalMin) * 60_000).toISOString()
   });
 
-  const reinterpretedStartsAtIso = reinterpretIsoAsLocalTimezone(originalStartsAtIso, defaultTimezone);
-  if (reinterpretedStartsAtIso && reinterpretedStartsAtIso !== originalStartsAtIso) {
-    const reinterpretedStartsAt = new Date(reinterpretedStartsAtIso);
-    trySlots.push({
-      startsAtIso: reinterpretedStartsAtIso,
-      endsAtIso: new Date(
-        reinterpretedStartsAt.getTime() + (durationMin + intervalMin) * 60_000
-      ).toISOString()
-    });
+  if (!options?.disableTimezoneReinterpretation) {
+    const reinterpretedStartsAtIso = reinterpretIsoAsLocalTimezone(originalStartsAtIso, defaultTimezone);
+    if (reinterpretedStartsAtIso && reinterpretedStartsAtIso !== originalStartsAtIso) {
+      const reinterpretedStartsAt = new Date(reinterpretedStartsAtIso);
+      trySlots.push({
+        startsAtIso: reinterpretedStartsAtIso,
+        endsAtIso: new Date(
+          reinterpretedStartsAt.getTime() + (durationMin + intervalMin) * 60_000
+        ).toISOString()
+      });
+    }
   }
 
   let selectedProfessional: ProfessionalItem | null = null;
@@ -1387,6 +1905,21 @@ async function createAppointmentFromDecision(
   }
 
   if (!selectedProfessional) {
+    if (preferredProfessional && availability) {
+      const overlappingAbsence = findOverlappingUnavailability(
+        availability.unavailabilityByProfessional.get(preferredProfessional.id),
+        finalStartsAtIso,
+        finalEndsAtIso
+      );
+      const reasonText = overlappingAbsence?.reason?.trim() ?? "";
+      if (overlappingAbsence?.share_reason_with_client && reasonText) {
+        return {
+          ok: false,
+          message: `Não encontrei ${preferredProfessional.name} nesse horário porque está ausente (${reasonText}). Posso buscar a próxima opção para você?`
+        };
+      }
+    }
+
     return {
       ok: false,
       message:
@@ -1434,8 +1967,10 @@ async function rescheduleAppointmentFromDecision(
   clientId: string,
   catalog: TenantCatalog,
   decision: IntentDecision,
-  availability: AvailabilityContext | null
+  availability: AvailabilityContext | null,
+  rawText: string
 ): Promise<AppointmentExecutionResult> {
+  const hasExplicitTimeRequest = Boolean(extractExplicitTimeInText(rawText));
   const activeTargetQuery = admin
     .from("appointments")
     .select("id, service_id, professional_id, starts_at, ends_at, status")
@@ -1482,7 +2017,8 @@ async function rescheduleAppointmentFromDecision(
       clientId,
       catalog,
       inferredDecision,
-      availability
+      availability,
+      { disableTimezoneReinterpretation: hasExplicitTimeRequest }
     );
 
     if (createdFromHistory.ok) {
@@ -1502,17 +2038,49 @@ async function rescheduleAppointmentFromDecision(
     any_available: decision.any_available || !decision.professional_id
   };
 
+  const decisionForReschedule: IntentDecision = { ...enrichedDecision };
+  const timezone =
+    availability?.scheduleByProfessional.get(target.professional_id)?.timezone ?? "America/Sao_Paulo";
+  const explicitTime = extractExplicitTimeInText(rawText);
+  if (explicitTime) {
+    const explicitDateIso = hasExplicitDateInText(rawText)
+      ? extractExplicitDateIsoInTimezone(rawText, timezone)
+      : null;
+    const baseDateIso = decisionForReschedule.starts_at_iso ?? explicitDateIso ?? target.starts_at;
+    const startsAtWithExplicitTime = mergeDateWithTimeInTimezone(
+      baseDateIso,
+      explicitTime.hour,
+      explicitTime.minute,
+      timezone
+    );
+    if (startsAtWithExplicitTime) {
+      decisionForReschedule.starts_at_iso = startsAtWithExplicitTime;
+      decisionForReschedule.ends_at_iso = null;
+    }
+  } else if (looksLikeSameTimeRequest(rawText) && enrichedDecision.starts_at_iso) {
+    const startsAtKeepingTime = mergeDateWithReferenceTimeInTimezone(
+      enrichedDecision.starts_at_iso,
+      target.starts_at,
+      timezone
+    );
+    if (startsAtKeepingTime) {
+      decisionForReschedule.starts_at_iso = startsAtKeepingTime;
+      decisionForReschedule.ends_at_iso = null;
+    }
+  }
+
   const created = await createAppointmentFromDecision(
     admin,
     tenantId,
     clientId,
     catalog,
-    enrichedDecision,
-    availability
+    decisionForReschedule,
+    availability,
+    { disableTimezoneReinterpretation: hasExplicitTimeRequest }
   );
   if (!created.ok || !created.appointmentId) return created;
 
-  await admin
+  const { error: closeError } = await admin
     .from("appointments")
     .update({
       status: "rescheduled",
@@ -1521,9 +2089,265 @@ async function rescheduleAppointmentFromDecision(
     .eq("tenant_id", tenantId)
     .eq("id", target.id);
 
+  if (closeError) {
+    return {
+      ...created,
+      ok: false,
+      message:
+        "Consegui criar o novo horário, mas não consegui desmarcar o anterior. Vou sinalizar para ajuste manual."
+    };
+  }
+
   return {
     ...created,
-    message: `Remarcacao concluida. ${created.message}`
+    message: `Remarcação concluída. ${created.message}`
+  };
+}
+
+async function cancelAppointmentFromRequest(
+  admin: ReturnType<typeof createClient>,
+  tenantId: string,
+  clientId: string,
+  catalog: TenantCatalog,
+  availability: AvailabilityContext | null,
+  rawText: string
+): Promise<AppointmentExecutionResult> {
+  const { data: activeRows } = await admin
+    .from("appointments")
+    .select("id, service_id, professional_id, starts_at, status")
+    .eq("tenant_id", tenantId)
+    .eq("client_id", clientId)
+    .in("status", ACTIVE_APPOINTMENT_STATUSES)
+    .gte("starts_at", new Date().toISOString())
+    .order("starts_at", { ascending: true })
+    .limit(10);
+
+  const rows = (activeRows ?? []) as Array<{
+    id: string;
+    service_id: string | null;
+    professional_id: string | null;
+    starts_at: string;
+    status: string;
+  }>;
+
+  if (rows.length === 0) {
+    return {
+      ok: false,
+      message: "Não encontrei agendamento ativo para cancelar."
+    };
+  }
+
+  const normalizedText = normalizeText(rawText);
+  const cancelAllRequested = looksLikeCancelAllRequest(rawText);
+  const byServiceMention = rows.filter((row) => {
+    if (!row.service_id) return false;
+    const service = catalog.services.find((item) => item.id === row.service_id);
+    if (!service) return false;
+    return normalizedText.includes(normalizeText(service.name));
+  });
+
+  const candidates = byServiceMention.length > 0 ? byServiceMention : rows;
+  const explicitDateIso = hasExplicitDateInText(rawText)
+    ? extractExplicitDateIsoInTimezone(rawText, "America/Sao_Paulo")
+    : null;
+  const scopedCandidates = explicitDateIso
+    ? candidates.filter((item) => {
+        const timezone =
+          (item.professional_id &&
+            availability?.scheduleByProfessional.get(item.professional_id)?.timezone) ||
+          "America/Sao_Paulo";
+        return isSameLocalDayInTimezone(item.starts_at, explicitDateIso, timezone);
+      })
+    : candidates;
+
+  if (scopedCandidates.length === 0 && explicitDateIso) {
+    return {
+      ok: false,
+      message: "Não encontrei agendamentos ativos para cancelar na data informada."
+    };
+  }
+
+  const effectiveCandidates = scopedCandidates.length > 0 ? scopedCandidates : candidates;
+  if (cancelAllRequested) {
+    const candidateIds = effectiveCandidates.map((item) => item.id);
+    const { error: cancelAllError } = await admin
+      .from("appointments")
+      .update({
+        status: "cancelled",
+        cancellation_reason: "Cancelado via WhatsApp pelo cliente"
+      })
+      .eq("tenant_id", tenantId)
+      .eq("client_id", clientId)
+      .in("id", candidateIds);
+
+    if (cancelAllError) {
+      return {
+        ok: false,
+        message: "Não consegui cancelar todos agora. Pode tentar novamente em instantes?"
+      };
+    }
+
+    const previewLines = effectiveCandidates.slice(0, 3).map((item) => {
+      const serviceName =
+        (item.service_id && catalog.services.find((svc) => svc.id === item.service_id)?.name) || "serviço";
+      const professionalName =
+        (item.professional_id && catalog.professionals.find((pro) => pro.id === item.professional_id)?.name) ||
+        "profissional";
+      const timezone =
+        (item.professional_id &&
+          availability?.scheduleByProfessional.get(item.professional_id)?.timezone) ||
+        "America/Sao_Paulo";
+      return `- ${serviceName} em ${formatDateTimePtBrInTimezone(item.starts_at, timezone)} com ${professionalName}`;
+    });
+
+    const extraCount = effectiveCandidates.length - previewLines.length;
+    const extraSuffix = extraCount > 0 ? `\n... e mais ${extraCount}.` : "";
+    return {
+      ok: true,
+      message:
+        `Cancelamento concluído. Cancelei ${effectiveCandidates.length} agendamento(s):\n` +
+        `${previewLines.join("\n")}${extraSuffix}`
+    };
+  }
+
+  if (effectiveCandidates.length > 1) {
+    const options = effectiveCandidates.slice(0, 5).map((row, index) => {
+      const serviceName =
+        (row.service_id && catalog.services.find((item) => item.id === row.service_id)?.name) || "serviço";
+      const professionalName =
+        (row.professional_id && catalog.professionals.find((item) => item.id === row.professional_id)?.name) ||
+        "profissional";
+      return {
+        option_index: index + 1,
+        appointment_id: row.id,
+        service_id: row.service_id,
+        service_name: serviceName,
+        professional_id: row.professional_id,
+        professional_name: professionalName,
+        starts_at_iso: row.starts_at
+      } as CancellationOption;
+    });
+
+    const lines = options.map((item) => {
+      const timezone =
+        (item.professional_id &&
+          availability?.scheduleByProfessional.get(item.professional_id)?.timezone) ||
+        "America/Sao_Paulo";
+      return `${item.option_index}) ${item.service_name} em ${formatDateTimePtBrInTimezone(item.starts_at_iso, timezone)} com ${item.professional_name}`;
+    });
+
+    return {
+      ok: false,
+      message:
+        `Encontrei mais de um agendamento para cancelar. Qual opção você quer cancelar?\n` +
+        `${lines.join("\n")}\n` +
+        "Responda com o número da opção.",
+      cancellationOptions: options
+    };
+  }
+  const target = effectiveCandidates[0];
+
+  const { error: cancelError } = await admin
+    .from("appointments")
+    .update({
+      status: "cancelled",
+      cancellation_reason: "Cancelado via WhatsApp pelo cliente"
+    })
+    .eq("tenant_id", tenantId)
+    .eq("id", target.id);
+
+  if (cancelError) {
+    return {
+      ok: false,
+      message: "Não consegui cancelar agora. Pode tentar novamente em instantes?"
+    };
+  }
+
+  const serviceName =
+    (target.service_id && catalog.services.find((item) => item.id === target.service_id)?.name) || "serviço";
+  const professionalName =
+    (target.professional_id && catalog.professionals.find((item) => item.id === target.professional_id)?.name) ||
+    "profissional";
+  const timezone =
+    (target.professional_id &&
+      availability?.scheduleByProfessional.get(target.professional_id)?.timezone) ||
+    "America/Sao_Paulo";
+
+  return {
+    ok: true,
+    appointmentId: target.id,
+    startsAtIso: target.starts_at,
+    serviceName,
+    professionalName,
+    message: `Cancelamento concluído. Agendamento de ${serviceName} em ${formatDateTimePtBrInTimezone(target.starts_at, timezone)} com ${professionalName} foi cancelado.`
+  };
+}
+
+async function cancelAppointmentById(
+  admin: ReturnType<typeof createClient>,
+  tenantId: string,
+  clientId: string,
+  catalog: TenantCatalog,
+  availability: AvailabilityContext | null,
+  appointmentId: string
+): Promise<AppointmentExecutionResult> {
+  const { data: row } = await admin
+    .from("appointments")
+    .select("id, service_id, professional_id, starts_at, status")
+    .eq("tenant_id", tenantId)
+    .eq("client_id", clientId)
+    .eq("id", appointmentId)
+    .in("status", ACTIVE_APPOINTMENT_STATUSES)
+    .limit(1)
+    .maybeSingle();
+
+  if (!row) {
+    return {
+      ok: false,
+      message: "Não encontrei esse agendamento ativo para cancelar."
+    };
+  }
+
+  const typed = row as {
+    id: string;
+    service_id: string | null;
+    professional_id: string | null;
+    starts_at: string;
+  };
+
+  const { error: cancelError } = await admin
+    .from("appointments")
+    .update({
+      status: "cancelled",
+      cancellation_reason: "Cancelado via WhatsApp pelo cliente"
+    })
+    .eq("tenant_id", tenantId)
+    .eq("id", typed.id);
+
+  if (cancelError) {
+    return {
+      ok: false,
+      message: "Não consegui cancelar agora. Pode tentar novamente em instantes?"
+    };
+  }
+
+  const serviceName =
+    (typed.service_id && catalog.services.find((item) => item.id === typed.service_id)?.name) || "serviço";
+  const professionalName =
+    (typed.professional_id && catalog.professionals.find((item) => item.id === typed.professional_id)?.name) ||
+    "profissional";
+  const timezone =
+    (typed.professional_id &&
+      availability?.scheduleByProfessional.get(typed.professional_id)?.timezone) ||
+    "America/Sao_Paulo";
+
+  return {
+    ok: true,
+    appointmentId: typed.id,
+    startsAtIso: typed.starts_at,
+    serviceName,
+    professionalName,
+    message: `Cancelamento concluído. Agendamento de ${serviceName} em ${formatDateTimePtBrInTimezone(typed.starts_at, timezone)} com ${professionalName} foi cancelado.`
   };
 }
 
@@ -1907,17 +2731,43 @@ Deno.serve(async (req) => {
         catalog.professionals.map((item) => item.id)
       );
       let suggestedOptionsPayload: SuggestedOption[] | null = null;
+      let cancellationOptionsPayload: CancellationOption[] | null = null;
 
       const selectedOptionIndex = parseSelectedOptionIndex(rawText);
+      let selectedCancellationOption: CancellationOption | null = null;
       let decision: IntentDecision;
+      let forcedAnchorDayIso: string | null = null;
+      let forcedMinimumStartsAtIso: string | null = null;
+      const afterMyAppointmentRequest = looksLikeAfterMyAppointmentRequest(rawText);
       if (selectedOptionIndex !== null) {
-        const latestSuggestedOptions = await loadLatestSuggestedOptions(admin, tenantId, conversationId);
-        const selected = latestSuggestedOptions.find((item) => item.option_index === selectedOptionIndex);
-        if (selected) {
+        const [latestCancellationOptions, latestSuggestedOptions] = await Promise.all([
+          loadLatestCancellationOptions(admin, tenantId, conversationId),
+          loadLatestSuggestedOptions(admin, tenantId, conversationId)
+        ]);
+        const selectedCancellation = latestCancellationOptions.find((item) => item.option_index === selectedOptionIndex);
+        if (selectedCancellation) {
+          selectedCancellationOption = selectedCancellation;
+          decision = {
+            intent: "collect_info",
+            confidence: 1,
+            reply_text: `Perfeito! Vou cancelar a opção ${selectedOptionIndex} para você.`,
+            service_id: selectedCancellation.service_id,
+            service_name: selectedCancellation.service_name,
+            professional_id: selectedCancellation.professional_id,
+            professional_name: selectedCancellation.professional_name,
+            starts_at_iso: selectedCancellation.starts_at_iso,
+            ends_at_iso: null,
+            duration_min: null,
+            any_available: false,
+            target_appointment_id: selectedCancellation.appointment_id
+          };
+        } else {
+          const selected = latestSuggestedOptions.find((item) => item.option_index === selectedOptionIndex);
+          if (selected) {
           decision = {
             intent: "create_appointment",
             confidence: 1,
-            reply_text: `Perfeito! Vou confirmar a opcao ${selectedOptionIndex} para voce.`,
+            reply_text: `Perfeito! Vou confirmar a opção ${selectedOptionIndex} para você.`,
             service_id: selected.service_id,
             service_name: selected.service_name,
             professional_id: selected.professional_id,
@@ -1928,18 +2778,19 @@ Deno.serve(async (req) => {
             any_available: false,
             target_appointment_id: null
           };
-        } else {
-          decision = await decideIntentWithAI(
-            conversationText,
-            catalog,
-            {
-              enabled: channelConfig.aiEnabled,
-              model: channelConfig.aiModel,
-              systemPrompt: channelConfig.aiSystemPrompt
-            },
-            rawText,
-            shouldGreet
-          );
+          } else {
+            decision = await decideIntentWithAI(
+              conversationText,
+              catalog,
+              {
+                enabled: channelConfig.aiEnabled,
+                model: channelConfig.aiModel,
+                systemPrompt: channelConfig.aiSystemPrompt
+              },
+              rawText,
+              shouldGreet
+            );
+          }
         }
       } else {
         decision = await decideIntentWithAI(
@@ -1953,6 +2804,83 @@ Deno.serve(async (req) => {
           rawText,
           shouldGreet
         );
+      }
+
+      if (looksLikeAffirmativeContinuation(rawText)) {
+        const pendingNextOption = await inferPendingNextOptionContext(
+          admin,
+          tenantId,
+          conversationId,
+          catalog
+        );
+        if (pendingNextOption) {
+          const requestedAnchorMs = pendingNextOption.requestedStartsAtIso
+            ? new Date(pendingNextOption.requestedStartsAtIso).getTime()
+            : Number.NaN;
+          const targetAnchorMs = pendingNextOption.targetStartsAtIso
+            ? new Date(pendingNextOption.targetStartsAtIso).getTime()
+            : Number.NaN;
+          if (Number.isFinite(requestedAnchorMs) && Number.isFinite(targetAnchorMs)) {
+            forcedAnchorDayIso =
+              requestedAnchorMs >= targetAnchorMs
+                ? pendingNextOption.requestedStartsAtIso
+                : pendingNextOption.targetStartsAtIso;
+          } else {
+            forcedAnchorDayIso = pendingNextOption.requestedStartsAtIso ?? pendingNextOption.targetStartsAtIso;
+          }
+          decision = {
+            ...decision,
+            intent: "collect_info",
+            confidence: 1,
+            reply_text: "Perfeito. Vou buscar as próximas opções para você.",
+            service_id: pendingNextOption.service.id,
+            service_name: pendingNextOption.service.name,
+            professional_id: pendingNextOption.professional?.id ?? null,
+            professional_name: pendingNextOption.professional?.name ?? null,
+            starts_at_iso: null,
+            ends_at_iso: null,
+            duration_min: null,
+            any_available: pendingNextOption.anyAvailable,
+            target_appointment_id: pendingNextOption.targetAppointmentId
+          };
+        }
+      }
+
+      if (afterMyAppointmentRequest) {
+        const conversationAnchorStartsAtIso = await inferConversationAnchorStartsAtIso(
+          admin,
+          tenantId,
+          conversationId
+        );
+        const inferred = await inferAfterMyAppointmentContext(
+          admin,
+          tenantId,
+          clientId,
+          catalog,
+          rawText,
+          conversationAnchorStartsAtIso
+        );
+        if (inferred) {
+          forcedAnchorDayIso = inferred.startsAtIso;
+          forcedMinimumStartsAtIso = inferred.endsAtIso || inferred.startsAtIso;
+          if (!decision.service_id && inferred.service) {
+            decision = {
+              ...decision,
+              intent: "collect_info",
+              confidence: Math.max(decision.confidence, 0.8),
+              service_id: inferred.service.id,
+              service_name: inferred.service.name
+            };
+          }
+          if (!decision.professional_id && inferred.professional) {
+            decision = {
+              ...decision,
+              professional_id: inferred.professional.id,
+              professional_name: inferred.professional.name,
+              any_available: false
+            };
+          }
+        }
       }
 
       if (
@@ -1970,6 +2898,41 @@ Deno.serve(async (req) => {
             professional_name: decision.professional_name ?? inferred.professional?.name ?? null,
             target_appointment_id: decision.target_appointment_id ?? inferred.appointmentId
           };
+        }
+      }
+
+      // Fallback for phrases like "dia 17 no mesmo horário":
+      // if date was provided but AI did not return starts_at_iso, infer date and keep original appointment time.
+      if (
+        looksLikeRescheduleRequest(rawText) &&
+        looksLikeSameTimeRequest(rawText) &&
+        hasExplicitDateInText(rawText) &&
+        !decision.starts_at_iso
+      ) {
+        const inferred = await inferRescheduleContext(admin, tenantId, clientId, catalog);
+        if (inferred) {
+          const timezone =
+            availability?.scheduleByProfessional.get(inferred.professional?.id ?? "")?.timezone ?? "America/Sao_Paulo";
+          const explicitDateIso = extractExplicitDateIsoInTimezone(rawText, timezone);
+          const mergedStartsAtIso =
+            explicitDateIso
+              ? mergeDateWithReferenceTimeInTimezone(explicitDateIso, inferred.startsAtIso, timezone)
+              : null;
+
+          if (mergedStartsAtIso) {
+            decision = {
+              ...decision,
+              intent: "reschedule_appointment",
+              confidence: Math.max(decision.confidence, 0.75),
+              starts_at_iso: mergedStartsAtIso,
+              ends_at_iso: null,
+              service_id: decision.service_id ?? inferred.service?.id ?? null,
+              service_name: decision.service_name ?? inferred.service?.name ?? null,
+              professional_id: decision.professional_id ?? inferred.professional?.id ?? null,
+              professional_name: decision.professional_name ?? inferred.professional?.name ?? null,
+              target_appointment_id: decision.target_appointment_id ?? inferred.appointmentId
+            };
+          }
         }
       }
 
@@ -2004,6 +2967,130 @@ Deno.serve(async (req) => {
 
       let finalReply = decision.reply_text;
       let actionResult: AppointmentExecutionResult | null = null;
+      const explicitTimeInMessage = extractExplicitTimeInText(rawText);
+
+      if (!actionResult && selectedCancellationOption) {
+        actionResult = await cancelAppointmentById(
+          admin,
+          tenantId,
+          clientId,
+          catalog,
+          availability,
+          selectedCancellationOption.appointment_id
+        );
+        finalReply = actionResult.message;
+      }
+
+      if (!actionResult && looksLikeCancelRequest(rawText)) {
+        actionResult = await cancelAppointmentFromRequest(
+          admin,
+          tenantId,
+          clientId,
+          catalog,
+          availability,
+          rawText
+        );
+        finalReply = actionResult.message;
+        cancellationOptionsPayload = actionResult.cancellationOptions ?? null;
+      }
+
+      // Priority path: explicit-time reschedule (e.g. "remarcar para 14hs") must execute directly.
+      if (
+        !actionResult &&
+        looksLikeRescheduleRequest(rawText) &&
+        explicitTimeInMessage
+      ) {
+        const inferred = await inferRescheduleContext(admin, tenantId, clientId, catalog);
+        if (inferred) {
+          const timezone =
+            availability?.scheduleByProfessional.get(inferred.professional?.id ?? "")?.timezone ?? "America/Sao_Paulo";
+          const explicitDateIso = hasExplicitDateInText(rawText)
+            ? extractExplicitDateIsoInTimezone(rawText, timezone)
+            : null;
+          const baseDateIso = decision.starts_at_iso ?? explicitDateIso ?? inferred.startsAtIso;
+          const mergedStartsAtIso = mergeDateWithTimeInTimezone(
+            baseDateIso,
+            explicitTimeInMessage.hour,
+            explicitTimeInMessage.minute,
+            timezone
+          );
+
+          if (mergedStartsAtIso) {
+            const forcedRescheduleDecision: IntentDecision = {
+              ...decision,
+              intent: "reschedule_appointment",
+              confidence: 1,
+              starts_at_iso: mergedStartsAtIso,
+              ends_at_iso: null,
+              service_id: decision.service_id ?? inferred.service?.id ?? null,
+              service_name: decision.service_name ?? inferred.service?.name ?? null,
+              professional_id: decision.professional_id ?? inferred.professional?.id ?? null,
+              professional_name: decision.professional_name ?? inferred.professional?.name ?? null,
+              any_available: false,
+              target_appointment_id: decision.target_appointment_id ?? inferred.appointmentId
+            };
+            decision = forcedRescheduleDecision;
+
+            actionResult = await rescheduleAppointmentFromDecision(
+              admin,
+              tenantId,
+              clientId,
+              catalog,
+              forcedRescheduleDecision,
+              availability,
+              rawText
+            );
+            finalReply = actionResult.message;
+          }
+        }
+      }
+
+      // Priority path: explicit reschedule request keeping same time must not fall back to generic availability suggestions.
+      if (
+        !actionResult &&
+        looksLikeRescheduleRequest(rawText) &&
+        looksLikeSameTimeRequest(rawText) &&
+        hasExplicitDateInText(rawText)
+      ) {
+        const inferred = await inferRescheduleContext(admin, tenantId, clientId, catalog);
+        if (inferred) {
+          const timezone =
+            availability?.scheduleByProfessional.get(inferred.professional?.id ?? "")?.timezone ?? "America/Sao_Paulo";
+          const explicitDateIso = extractExplicitDateIsoInTimezone(rawText, timezone);
+          const mergedStartsAtIso =
+            explicitDateIso
+              ? mergeDateWithReferenceTimeInTimezone(explicitDateIso, inferred.startsAtIso, timezone)
+              : null;
+
+          if (mergedStartsAtIso) {
+            const forcedRescheduleDecision: IntentDecision = {
+              ...decision,
+              intent: "reschedule_appointment",
+              confidence: 1,
+              starts_at_iso: mergedStartsAtIso,
+              ends_at_iso: null,
+              service_id: decision.service_id ?? inferred.service?.id ?? null,
+              service_name: decision.service_name ?? inferred.service?.name ?? null,
+              professional_id: decision.professional_id ?? inferred.professional?.id ?? null,
+              professional_name: decision.professional_name ?? inferred.professional?.name ?? null,
+              any_available: false,
+              target_appointment_id: decision.target_appointment_id ?? inferred.appointmentId
+            };
+            decision = forcedRescheduleDecision;
+
+            actionResult = await rescheduleAppointmentFromDecision(
+              admin,
+              tenantId,
+              clientId,
+              catalog,
+              forcedRescheduleDecision,
+              availability,
+              rawText
+            );
+            finalReply = actionResult.message;
+          }
+        }
+      }
 
       // If user provides an explicit date/time and asks to change schedule, try immediate execution first.
       if (decision.intent === "collect_info" && decision.starts_at_iso) {
@@ -2025,7 +3112,8 @@ Deno.serve(async (req) => {
                   clientId,
                   catalog,
                   inferredIntent,
-                  availability
+                  availability,
+                  rawText
                 )
               : await createAppointmentFromDecision(
                   admin,
@@ -2052,7 +3140,11 @@ Deno.serve(async (req) => {
           const periodPreference = detectPeriodPreference(rawText);
           const dayPreference = detectRelativeDayPreference(rawText);
           const weekdayPreference = detectWeekdayPreference(rawText);
-          const optionSearchLimit = periodPreference !== null ? 240 : 48;
+          const optionSearchLimit = forcedAnchorDayIso || forcedMinimumStartsAtIso
+            ? 480
+            : periodPreference !== null
+              ? 240
+              : 48;
 
           const options = await findNextAvailabilityOptions(
             catalog,
@@ -2070,12 +3162,22 @@ Deno.serve(async (req) => {
             !hasExplicitDateInText(rawText);
 
           let anchorDayIso: string | null = null;
-          if (keepConversationDay) {
+          if (forcedAnchorDayIso) {
+            anchorDayIso = forcedAnchorDayIso;
+          } else if (keepConversationDay) {
             const latestSuggestedOptions = await loadLatestSuggestedOptions(admin, tenantId, conversationId);
             anchorDayIso = latestSuggestedOptions[0]?.starts_at_iso ?? null;
           }
 
-          const baseByDay = options.filter((item) => {
+          const optionsAfterMinimum = forcedMinimumStartsAtIso
+            ? options.filter((item) => {
+                const slotMs = new Date(item.startsAtIso).getTime();
+                const minMs = new Date(forcedMinimumStartsAtIso).getTime();
+                return Number.isFinite(slotMs) && Number.isFinite(minMs) && slotMs >= minMs;
+              })
+            : options;
+
+          const baseByDay = optionsAfterMinimum.filter((item) => {
             const schedule = availability.scheduleByProfessional.get(item.professional.id);
             const timezone = schedule?.timezone || "America/Sao_Paulo";
             if (weekdayPreference !== null) {
@@ -2097,7 +3199,7 @@ Deno.serve(async (req) => {
             return isWithinPreferredPeriod(item.startsAtIso, timezone, periodPreference);
           });
 
-          const periodOnlyGlobal = options.filter((item) => {
+          const periodOnlyGlobal = optionsAfterMinimum.filter((item) => {
             if (periodPreference === null) return false;
             const schedule = availability.scheduleByProfessional.get(item.professional.id);
             const timezone = schedule?.timezone || "America/Sao_Paulo";
@@ -2105,7 +3207,19 @@ Deno.serve(async (req) => {
           });
 
           const optionsByPeriod = filteredByPeriod.slice(0, 3);
-          const fallbackSource = baseByDay.length > 0 ? baseByDay : options;
+          const anchoredOptions = anchorDayIso
+            ? optionsAfterMinimum.filter((item) => {
+                const schedule = availability.scheduleByProfessional.get(item.professional.id);
+                const timezone = schedule?.timezone || "America/Sao_Paulo";
+                return isOnOrAfterLocalDayInTimezone(item.startsAtIso, anchorDayIso, timezone);
+              })
+            : optionsAfterMinimum;
+          const fallbackSource =
+            baseByDay.length > 0
+              ? baseByDay
+              : anchorDayIso
+                ? anchoredOptions
+                : optionsAfterMinimum;
           const periodAwareFallback =
             periodPreference === null
               ? fallbackSource
@@ -2115,8 +3229,98 @@ Deno.serve(async (req) => {
                   return isPreferredAlternativePeriod(item.startsAtIso, timezone, periodPreference);
                 });
           const fallbackOptions = (periodAwareFallback.length > 0 ? periodAwareFallback : fallbackSource).slice(0, 3);
+          const sameDayAfterOptions =
+            afterMyAppointmentRequest && anchorDayIso
+              ? optionsAfterMinimum.filter((item) => {
+                  const schedule = availability.scheduleByProfessional.get(item.professional.id);
+                  const timezone = schedule?.timezone || "America/Sao_Paulo";
+                  return isSameLocalDayInTimezone(item.startsAtIso, anchorDayIso, timezone);
+                })
+              : [];
+          const sameDayBeforeOptions =
+            afterMyAppointmentRequest && anchorDayIso && forcedMinimumStartsAtIso
+              ? options.filter((item) => {
+                  const schedule = availability.scheduleByProfessional.get(item.professional.id);
+                  const timezone = schedule?.timezone || "America/Sao_Paulo";
+                  const sameDay = isSameLocalDayInTimezone(item.startsAtIso, anchorDayIso, timezone);
+                  if (!sameDay) return false;
+                  const slotMs = new Date(item.startsAtIso).getTime();
+                  const minMs = new Date(forcedMinimumStartsAtIso).getTime();
+                  return Number.isFinite(slotMs) && Number.isFinite(minMs) && slotMs < minMs;
+                })
+              : [];
 
-          if (optionsByPeriod.length > 0) {
+          if (afterMyAppointmentRequest && anchorDayIso && sameDayAfterOptions.length === 0) {
+            const minMs = forcedMinimumStartsAtIso ? new Date(forcedMinimumStartsAtIso).getTime() : Number.NaN;
+            const previousDayOptions = sameDayBeforeOptions
+              .slice()
+              .sort((a, b) => {
+                const aMs = new Date(a.startsAtIso).getTime();
+                const bMs = new Date(b.startsAtIso).getTime();
+                if (!Number.isFinite(minMs) || !Number.isFinite(aMs) || !Number.isFinite(bMs)) {
+                  return bMs - aMs;
+                }
+                const aDiff = minMs - aMs;
+                const bDiff = minMs - bMs;
+                return aDiff - bDiff;
+              })
+              .slice(0, 3);
+            if (previousDayOptions.length > 0) {
+              const lines = previousDayOptions.map((item, index) => {
+                const schedule = availability.scheduleByProfessional.get(item.professional.id);
+                const timezone = schedule?.timezone || "America/Sao_Paulo";
+                const dateLabel = formatDateTimePtBrInTimezone(item.startsAtIso, timezone);
+                return `${index + 1}) ${dateLabel} com ${item.professional.name}`;
+              });
+              suggestedOptionsPayload = previousDayOptions.map((item, index) => ({
+                option_index: index + 1,
+                service_id: service.id,
+                service_name: service.name,
+                professional_id: item.professional.id,
+                professional_name: item.professional.name,
+                starts_at_iso: item.startsAtIso,
+                ends_at_iso: item.endsAtIso
+              }));
+              finalReply =
+                `Entendi. Não encontrei horário logo após a sua massagem no mesmo dia para ${service.name}. ` +
+                "Posso te oferecer opções anteriores no mesmo dia:\n" +
+                `${lines.join("\n")}`;
+            } else {
+              const nextDayOptions = anchoredOptions
+              .filter((item) => {
+                const schedule = availability.scheduleByProfessional.get(item.professional.id);
+                const timezone = schedule?.timezone || "America/Sao_Paulo";
+                return !isSameLocalDayInTimezone(item.startsAtIso, anchorDayIso, timezone);
+              })
+              .slice(0, 3);
+
+              if (nextDayOptions.length > 0) {
+                const lines = nextDayOptions.map((item, index) => {
+                  const schedule = availability.scheduleByProfessional.get(item.professional.id);
+                  const timezone = schedule?.timezone || "America/Sao_Paulo";
+                  const dateLabel = formatDateTimePtBrInTimezone(item.startsAtIso, timezone);
+                  return `${index + 1}) ${dateLabel} com ${item.professional.name}`;
+                });
+                suggestedOptionsPayload = nextDayOptions.map((item, index) => ({
+                  option_index: index + 1,
+                  service_id: service.id,
+                  service_name: service.name,
+                  professional_id: item.professional.id,
+                  professional_name: item.professional.name,
+                  starts_at_iso: item.startsAtIso,
+                  ends_at_iso: item.endsAtIso
+                }));
+                finalReply =
+                  `Entendi. Não encontrei horário logo após a sua massagem no mesmo dia para ${service.name}. ` +
+                  "Aqui estão as próximas opções:\n" +
+                  `${lines.join("\n")}`;
+              } else {
+                finalReply =
+                  `Entendi. Não há horário logo após a sua massagem no mesmo dia para ${service.name}. ` +
+                  "Se quiser, me diga outro dia/período e eu busco as melhores opções.";
+              }
+            }
+          } else if (optionsByPeriod.length > 0) {
             const lines = optionsByPeriod.map((item, index) => {
               const schedule = availability.scheduleByProfessional.get(item.professional.id);
               const timezone = schedule?.timezone || "America/Sao_Paulo";
@@ -2164,7 +3368,7 @@ Deno.serve(async (req) => {
               ends_at_iso: item.endsAtIso
             }));
             finalReply =
-              `${intro}No dia em contexto não encontrei horários disponíveis ${periodLabel} para ${service.name}. ` +
+              `${intro}Para o dia solicitado, não encontrei horários disponíveis ${periodLabel} para ${service.name}. ` +
               `Aqui estão as próximas opções ${periodLabel}:\n` +
               `${periodLines.join("\n")}`;
           } else if (periodPreference !== null && fallbackOptions.length > 0) {
@@ -2236,7 +3440,8 @@ Deno.serve(async (req) => {
           clientId,
           catalog,
           decision,
-          availability
+          availability,
+          rawText
         );
         if (actionResult.ok) {
           finalReply = actionResult.message;
@@ -2266,6 +3471,7 @@ Deno.serve(async (req) => {
           decision,
           action_result: actionResult,
           suggested_options: suggestedOptionsPayload,
+          cancellation_options: cancellationOptionsPayload,
           delivery_error: delivery.error
         }
       });

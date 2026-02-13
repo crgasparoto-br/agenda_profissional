@@ -50,7 +50,7 @@ export default function ClientsPage() {
     const supabase = getSupabaseBrowserClient();
     const { data: tenantId, error: tenantError } = await supabase.rpc("auth_tenant_id");
     if (tenantError || !tenantId) {
-      setError("Nao foi possivel resolver a organizacao atual.");
+      setError("Não foi possível resolver a organização atual.");
       return;
     }
 
@@ -220,6 +220,7 @@ export default function ClientsPage() {
     </section>
   );
 }
+
 
 
 

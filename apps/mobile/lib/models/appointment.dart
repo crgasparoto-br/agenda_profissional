@@ -1,10 +1,16 @@
 class AppointmentItem {
   const AppointmentItem({
     required this.id,
+    required this.tenantId,
+    required this.clientId,
+    required this.serviceId,
+    required this.specialtyId,
     required this.professionalId,
+    required this.source,
     required this.startsAt,
     required this.endsAt,
     required this.status,
+    required this.cancellationReason,
     required this.professionalName,
     required this.serviceName,
     required this.serviceDurationMin,
@@ -13,10 +19,16 @@ class AppointmentItem {
   });
 
   final String id;
+  final String tenantId;
+  final String? clientId;
+  final String serviceId;
+  final String? specialtyId;
   final String professionalId;
+  final String source;
   final DateTime startsAt;
   final DateTime endsAt;
   final String status;
+  final String? cancellationReason;
   final String professionalName;
   final String serviceName;
   final int serviceDurationMin;
@@ -30,10 +42,16 @@ class AppointmentItem {
 
     return AppointmentItem(
       id: json['id'] as String,
+      tenantId: json['tenant_id'] as String,
+      clientId: json['client_id'] as String?,
+      serviceId: json['service_id'] as String,
+      specialtyId: json['specialty_id'] as String?,
       professionalId: json['professional_id'] as String,
+      source: (json['source'] as String?) ?? 'professional',
       startsAt: DateTime.parse(json['starts_at'] as String).toUtc(),
       endsAt: DateTime.parse(json['ends_at'] as String).toUtc(),
       status: json['status'] as String,
+      cancellationReason: json['cancellation_reason'] as String?,
       professionalName: (professionals?['name'] ?? '-') as String,
       serviceName: (services?['name'] ?? '-') as String,
       serviceDurationMin: (services?['duration_min'] as num?)?.toInt() ?? 0,

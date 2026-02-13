@@ -1,8 +1,9 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState } from "react";
 import type { Json } from "@agenda-profissional/shared/database.types";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 type ProfessionalRow = {
   id: string;
@@ -43,6 +44,7 @@ type UnavailabilityRow = {
   starts_at: string;
   ends_at: string;
   reason: string | null;
+  share_reason_with_client: boolean;
 };
 
 type UnavailabilityDraft = {
@@ -50,6 +52,7 @@ type UnavailabilityDraft = {
   startsAt: string;
   endsAt: string;
   reason: string;
+  shareReasonWithClient: boolean;
 };
 
 const WEEK_DAYS = [
@@ -170,7 +173,8 @@ function createDefaultUnavailabilityDraft(): UnavailabilityDraft {
     id: null,
     startsAt: start,
     endsAt: end,
-    reason: ""
+    reason: "",
+    shareReasonWithClient: false
   };
 }
 
@@ -256,7 +260,7 @@ function validateDayRule(rule: DayRuleDraft, label: string): string | null {
       breakStart < startMinutes ||
       breakEnd > endMinutes
     ) {
-      return `Almoco invalido (${label}).`;
+      return `almoço invalido (${label}).`;
     }
   }
 
@@ -287,7 +291,7 @@ function validateDayRule(rule: DayRuleDraft, label: string): string | null {
       lunchStart < pauseEnd &&
       pauseStart < lunchEnd
     ) {
-      return `Almoco e pausa nao podem se sobrepor (${label}).`;
+      return `almoço e pausa Não podem se sobrepor (${label}).`;
     }
   }
 
@@ -299,6 +303,7 @@ export default function SchedulesPage() {
   const [drafts, setDrafts] = useState<Record<string, ScheduleDraft>>({});
   const [unavailabilityByProfessional, setUnavailabilityByProfessional] = useState<Record<string, UnavailabilityRow[]>>({});
   const [unavailabilityDrafts, setUnavailabilityDrafts] = useState<Record<string, UnavailabilityDraft>>({});
+  const [showOnlyShareableByProfessional, setShowOnlyShareableByProfessional] = useState<Record<string, boolean>>({});
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [editingProfessionalId, setEditingProfessionalId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -315,7 +320,7 @@ export default function SchedulesPage() {
           .select("professional_id, timezone, workdays, work_hours")
       ]);
     const { data: unavailabilityData, error: unavailabilityError } = await unavailabilityTable
-      .select("id, professional_id, starts_at, ends_at, reason")
+      .select("id, professional_id, starts_at, ends_at, reason, share_reason_with_client")
       .order("starts_at", { ascending: true });
 
     if (professionalsError) {
@@ -388,7 +393,7 @@ export default function SchedulesPage() {
     async function bootstrap() {
       const { data, error: tenantError } = await supabase.rpc("auth_tenant_id");
       if (tenantError || !data) {
-        setError("Nao foi possivel resolver a organizacao atual.");
+        setError("Não foi possível resolver a organização atual.");
         return;
       }
 
@@ -515,7 +520,8 @@ export default function SchedulesPage() {
       id: row.id,
       startsAt: formatIsoToDateTimeInputInTimezone(row.starts_at, timezone),
       endsAt: formatIsoToDateTimeInputInTimezone(row.ends_at, timezone),
-      reason: row.reason ?? ""
+      reason: row.reason ?? "",
+      shareReasonWithClient: row.share_reason_with_client
     });
   }
 
@@ -530,7 +536,7 @@ export default function SchedulesPage() {
 
     const draft = unavailabilityDrafts[professionalId] ?? createDefaultUnavailabilityDraft();
     if (!draft.startsAt || !draft.endsAt) {
-      setError("Informe inicio e fim da ausencia.");
+      setError("Informe início e fim da ausência.");
       return;
     }
     const timezone = drafts[professionalId]?.timezone || "America/Sao_Paulo";
@@ -541,7 +547,7 @@ export default function SchedulesPage() {
       return;
     }
     if (new Date(endsAtIso) <= new Date(startsAtIso)) {
-      setError("Periodo de ausencia invalido.");
+      setError("Período de ausência inválido.");
       return;
     }
 
@@ -552,7 +558,8 @@ export default function SchedulesPage() {
       professional_id: professionalId,
       starts_at: startsAtIso,
       ends_at: endsAtIso,
-      reason: draft.reason.trim() || null
+      reason: draft.reason.trim() || null,
+      share_reason_with_client: draft.shareReasonWithClient
     };
 
     const mutation = draft.id
@@ -565,13 +572,13 @@ export default function SchedulesPage() {
       return;
     }
 
-    setStatus(draft.id ? "Ausencia atualizada." : "Ausencia cadastrada.");
+    setStatus(draft.id ? "Ausência atualizada." : "Ausência cadastrada.");
     clearUnavailabilityForm(professionalId);
     await load();
   }
 
   async function deleteUnavailability(professionalId: string, absenceId: string) {
-    if (!confirm("Deseja remover este periodo de ausencia?")) return;
+    if (!confirm("Deseja remover este período de ausência?")) return;
 
     setError(null);
     setStatus(null);
@@ -585,11 +592,42 @@ export default function SchedulesPage() {
       return;
     }
 
-    setStatus("Ausencia removida.");
+    setStatus("Ausência removida.");
     if (unavailabilityDrafts[professionalId]?.id === absenceId) {
       clearUnavailabilityForm(professionalId);
     }
     await load();
+  }
+
+  async function setUnavailabilityReasonVisibility(
+    professionalId: string,
+    absenceId: string,
+    visibleToClient: boolean
+  ) {
+    setError(null);
+    setStatus(null);
+
+    const supabase = getSupabaseBrowserClient();
+    const table = (supabase as any).from("professional_unavailability");
+    const { error: updateError } = await table
+      .update({ share_reason_with_client: visibleToClient })
+      .eq("id", absenceId)
+      .eq("professional_id", professionalId);
+
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+
+    setUnavailabilityByProfessional((prev) => {
+      const current = prev[professionalId] ?? [];
+      return {
+        ...prev,
+        [professionalId]: current.map((item) =>
+          item.id === absenceId ? { ...item, share_reason_with_client: visibleToClient } : item
+        )
+      };
+    });
   }
 
   async function saveSchedule(professionalId: string): Promise<boolean> {
@@ -611,7 +649,7 @@ export default function SchedulesPage() {
     for (const weekday of draft.workdays) {
       const override = draft.dailyOverrides[weekday];
       if (!override) continue;
-      const label = `excecao de ${WEEK_DAYS.find((item) => item.id === weekday)?.label ?? weekday}`;
+      const label = `exceção de ${WEEK_DAYS.find((item) => item.id === weekday)?.label ?? weekday}`;
       const overrideError = validateDayRule(override, label);
       if (overrideError) {
         setError(overrideError);
@@ -670,7 +708,7 @@ export default function SchedulesPage() {
       return false;
     }
 
-    setStatus("Horario salvo com sucesso.");
+    setStatus("Horário salvo com sucesso.");
     await load();
     return true;
   }
@@ -692,7 +730,7 @@ export default function SchedulesPage() {
   return (
     <section className="page-stack">
       <div className="card">
-        <h1>Horarios do profissional</h1>
+        <h1>Horários do profissional</h1>
         <p>Defina dias e janelas de atendimento, pausas e ausencias programadas (ferias, congressos, folgas).</p>
       </div>
 
@@ -703,17 +741,46 @@ export default function SchedulesPage() {
         const draft = drafts[professional.id];
         if (!draft) return null;
         const isEditing = editingProfessionalId === professional.id;
+        const unavailabilityItems = unavailabilityByProfessional[professional.id] ?? [];
+        const showOnlyShareable = showOnlyShareableByProfessional[professional.id] ?? false;
+        const visibleUnavailabilityItems = showOnlyShareable
+          ? unavailabilityItems.filter((item) => item.share_reason_with_client)
+          : unavailabilityItems;
 
         return (
           <div className="card col" key={professional.id}>
             <div className="row align-center justify-between">
-              <h2>
-                {professional.name}
-                {!professional.active ? " (inativo)" : ""}
-              </h2>
+              <div className="row align-center">
+                <h2>
+                  {professional.name}
+                  {!professional.active ? " (inativo)" : ""}
+                </h2>
+                {isEditing ? (
+                  <div className="row">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const ok = await saveSchedule(professional.id);
+                        if (ok) {
+                          setEditingProfessionalId(null);
+                        }
+                      }}
+                    >
+                      Salvar Horário
+                    </button>
+                    <button type="button" className="secondary" onClick={cancelEditingSchedule}>
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" className="secondary" onClick={() => startEditingSchedule(professional.id)}>
+                    Editar Horário
+                  </button>
+                )}
+              </div>
 
               <label className="inline-field">
-                <span>Fuso horario</span>
+                <span>Fuso Horário</span>
                 <input
                   value={draft.timezone}
                   onChange={(e) => updateDraft(professional.id, { timezone: e.target.value })}
@@ -722,6 +789,10 @@ export default function SchedulesPage() {
               </label>
             </div>
 
+            <Accordion type="single" collapsible>
+              <AccordionItem value={`details-${professional.id}`}>
+                <AccordionTrigger>Dias e regras de atendimento</AccordionTrigger>
+                <AccordionContent>
             <div className="col">
               <strong>Dias de atendimento</strong>
               <div className="row weekday-inline-row">
@@ -770,10 +841,10 @@ export default function SchedulesPage() {
                       onChange={(e) => updateDefaultBreak(professional.id, "lunchBreak", { enabled: e.target.checked })}
                       disabled={!isEditing}
                     />
-                    Almoco:
+                    almoço:
                   </label>
                   <label className="inline-field">
-                    <span>Inicio</span>
+                    <span>Início</span>
                     <input
                       type="time"
                       value={draft.defaultRule.lunchBreak.start}
@@ -803,7 +874,7 @@ export default function SchedulesPage() {
                     Pausa:
                   </label>
                   <label className="inline-field">
-                    <span>Inicio</span>
+                    <span>Início</span>
                     <input
                       type="time"
                       value={draft.defaultRule.pauseBreak.start}
@@ -824,252 +895,296 @@ export default function SchedulesPage() {
               </div>
             </div>
 
-            <div className="col">
-              <strong>Excecoes por dia (opcional)</strong>
-              {draft.workdays.map((weekday) => {
-                const override = draft.dailyOverrides[weekday];
-                const weekdayLabel = WEEK_DAYS.find((item) => item.id === weekday)?.label ?? String(weekday);
-                return (
-                  <div className="card col" key={weekday}>
-                    <label className="row align-center">
+            <Accordion type="multiple" className="col">
+              <AccordionItem value={`exceptions-${professional.id}`}>
+                <AccordionTrigger>Exceções por dia</AccordionTrigger>
+                <AccordionContent>
+                  <div className="col">
+                    {draft.workdays.map((weekday) => {
+                      const override = draft.dailyOverrides[weekday];
+                      const weekdayLabel = WEEK_DAYS.find((item) => item.id === weekday)?.label ?? String(weekday);
+                      return (
+                        <div className="card col" key={weekday}>
+                          <label className="row align-center">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(override)}
+                              onChange={(e) => toggleDayOverride(professional.id, weekday, e.target.checked)}
+                              disabled={!isEditing}
+                            />
+                            Usar exceção em {weekdayLabel}
+                          </label>
+
+                          {override ? (
+                            <div className="schedule-rules-inline">
+                              <div className="row align-center schedule-rule-row">
+                                <span>Regra do dia:</span>
+                                <label className="inline-field">
+                                  <input
+                                    type="time"
+                                    value={override.start}
+                                    onChange={(e) => updateDayOverride(professional.id, weekday, { start: e.target.value })}
+                                    disabled={!isEditing}
+                                  />
+                                </label>
+                                <label className="inline-field">
+                                  <span>-</span>
+                                  <input
+                                    type="time"
+                                    value={override.end}
+                                    onChange={(e) => updateDayOverride(professional.id, weekday, { end: e.target.value })}
+                                    disabled={!isEditing}
+                                  />
+                                </label>
+                              </div>
+
+                              <div className="row align-center schedule-rule-row">
+                                <label className="checkbox-row schedule-toggle">
+                                  <input
+                                    type="checkbox"
+                                    checked={override.lunchBreak.enabled}
+                                    onChange={(e) =>
+                                      updateDayOverrideBreak(professional.id, weekday, "lunchBreak", {
+                                        enabled: e.target.checked
+                                      })}
+                                    disabled={!isEditing}
+                                  />
+                                  almoço:
+                                </label>
+                                <label className="inline-field">
+                                  <input
+                                    type="time"
+                                    value={override.lunchBreak.start}
+                                    onChange={(e) =>
+                                      updateDayOverrideBreak(professional.id, weekday, "lunchBreak", {
+                                        start: e.target.value
+                                      })}
+                                    disabled={!isEditing || !override.lunchBreak.enabled}
+                                  />
+                                </label>
+                                <label className="inline-field">
+                                  <span>-</span>
+                                  <input
+                                    type="time"
+                                    value={override.lunchBreak.end}
+                                    onChange={(e) =>
+                                      updateDayOverrideBreak(professional.id, weekday, "lunchBreak", {
+                                        end: e.target.value
+                                      })}
+                                    disabled={!isEditing || !override.lunchBreak.enabled}
+                                  />
+                                </label>
+                              </div>
+
+                              <div className="row align-center schedule-rule-row">
+                                <label className="checkbox-row schedule-toggle">
+                                  <input
+                                    type="checkbox"
+                                    checked={override.pauseBreak.enabled}
+                                    onChange={(e) =>
+                                      updateDayOverrideBreak(professional.id, weekday, "pauseBreak", {
+                                        enabled: e.target.checked
+                                      })}
+                                    disabled={!isEditing}
+                                  />
+                                  Pausa:
+                                </label>
+                                <label className="inline-field">
+                                  <input
+                                    type="time"
+                                    value={override.pauseBreak.start}
+                                    onChange={(e) =>
+                                      updateDayOverrideBreak(professional.id, weekday, "pauseBreak", {
+                                        start: e.target.value
+                                      })}
+                                    disabled={!isEditing || !override.pauseBreak.enabled}
+                                  />
+                                </label>
+                                <label className="inline-field">
+                                  <span>-</span>
+                                  <input
+                                    type="time"
+                                    value={override.pauseBreak.end}
+                                    onChange={(e) =>
+                                      updateDayOverrideBreak(professional.id, weekday, "pauseBreak", {
+                                        end: e.target.value
+                                      })}
+                                    disabled={!isEditing || !override.pauseBreak.enabled}
+                                  />
+                                </label>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value={`absences-${professional.id}`}>
+                <AccordionTrigger>Ausências programadas</AccordionTrigger>
+                <AccordionContent>
+                  <div className="col absence-panel">
+                    <div className="row align-center justify-between">
+                      <span className="text-muted">Bloqueia disponibilidade em dias futuros.</span>
+                    </div>
+
+                    <div className="absence-grid">
+                      <label className="col">
+                        Início da ausência
+                        <input
+                          type="datetime-local"
+                          value={unavailabilityDrafts[professional.id]?.startsAt ?? ""}
+                          onChange={(e) => updateUnavailabilityDraft(professional.id, { startsAt: e.target.value })}
+                          disabled={!isEditing}
+                        />
+                      </label>
+
+                      <label className="col">
+                        Fim da ausência
+                        <input
+                          type="datetime-local"
+                          value={unavailabilityDrafts[professional.id]?.endsAt ?? ""}
+                          onChange={(e) => updateUnavailabilityDraft(professional.id, { endsAt: e.target.value })}
+                          disabled={!isEditing}
+                        />
+                      </label>
+
+                      <label className="col absence-reason">
+                        Motivo (opcional)
+                        <input
+                          value={unavailabilityDrafts[professional.id]?.reason ?? ""}
+                          onChange={(e) => updateUnavailabilityDraft(professional.id, { reason: e.target.value })}
+                          placeholder="Ex.: Ferias, congresso, afastamento"
+                          disabled={!isEditing}
+                        />
+                      </label>
+                    </div>
+
+                    <label className="checkbox-row">
                       <input
                         type="checkbox"
-                        checked={Boolean(override)}
-                        onChange={(e) => toggleDayOverride(professional.id, weekday, e.target.checked)}
+                        checked={unavailabilityDrafts[professional.id]?.shareReasonWithClient ?? false}
+                        onChange={(e) =>
+                          updateUnavailabilityDraft(professional.id, { shareReasonWithClient: e.target.checked })
+                        }
                         disabled={!isEditing}
                       />
-                      Usar excecao em {weekdayLabel}
+                      Permitir que o bot informe o motivo da ausência ao cliente
                     </label>
 
-                    {override ? (
-                      <div className="schedule-rules-inline">
-                        <div className="row align-center schedule-rule-row">
-                          <span>Regra do dia:</span>
-                          <label className="inline-field">
-                            <input
-                              type="time"
-                              value={override.start}
-                              onChange={(e) => updateDayOverride(professional.id, weekday, { start: e.target.value })}
-                              disabled={!isEditing}
-                            />
-                          </label>
-                          <label className="inline-field">
-                            <span>-</span>
-                            <input
-                              type="time"
-                              value={override.end}
-                              onChange={(e) => updateDayOverride(professional.id, weekday, { end: e.target.value })}
-                              disabled={!isEditing}
-                            />
-                          </label>
-                        </div>
+                    <div className="row actions-row">
+                      <button type="button" onClick={() => saveUnavailability(professional.id)} disabled={!isEditing}>
+                        {unavailabilityDrafts[professional.id]?.id ? "Atualizar ausência" : "Adicionar ausência"}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => clearUnavailabilityForm(professional.id)}
+                        disabled={!isEditing}
+                      >
+                        Limpar formulário
+                      </button>
+                    </div>
 
-                        <div className="row align-center schedule-rule-row">
-                          <label className="checkbox-row schedule-toggle">
-                            <input
-                              type="checkbox"
-                              checked={override.lunchBreak.enabled}
-                              onChange={(e) =>
-                                updateDayOverrideBreak(professional.id, weekday, "lunchBreak", {
-                                  enabled: e.target.checked
-                                })}
-                              disabled={!isEditing}
-                            />
-                            Almoco:
-                          </label>
-                          <label className="inline-field">
-                            <input
-                              type="time"
-                              value={override.lunchBreak.start}
-                              onChange={(e) =>
-                                updateDayOverrideBreak(professional.id, weekday, "lunchBreak", {
-                                  start: e.target.value
-                                })}
-                              disabled={!isEditing || !override.lunchBreak.enabled}
-                            />
-                          </label>
-                          <label className="inline-field">
-                            <span>-</span>
-                            <input
-                              type="time"
-                              value={override.lunchBreak.end}
-                              onChange={(e) =>
-                                updateDayOverrideBreak(professional.id, weekday, "lunchBreak", {
-                                  end: e.target.value
-                                })}
-                              disabled={!isEditing || !override.lunchBreak.enabled}
-                            />
-                          </label>
-                        </div>
-
-                        <div className="row align-center schedule-rule-row">
-                          <label className="checkbox-row schedule-toggle">
-                            <input
-                              type="checkbox"
-                              checked={override.pauseBreak.enabled}
-                              onChange={(e) =>
-                                updateDayOverrideBreak(professional.id, weekday, "pauseBreak", {
-                                  enabled: e.target.checked
-                                })}
-                              disabled={!isEditing}
-                            />
-                            Pausa:
-                          </label>
-                          <label className="inline-field">
-                            <input
-                              type="time"
-                              value={override.pauseBreak.start}
-                              onChange={(e) =>
-                                updateDayOverrideBreak(professional.id, weekday, "pauseBreak", {
-                                  start: e.target.value
-                                })}
-                              disabled={!isEditing || !override.pauseBreak.enabled}
-                            />
-                          </label>
-                          <label className="inline-field">
-                            <span>-</span>
-                            <input
-                              type="time"
-                              value={override.pauseBreak.end}
-                              onChange={(e) =>
-                                updateDayOverrideBreak(professional.id, weekday, "pauseBreak", {
-                                  end: e.target.value
-                                })}
-                              disabled={!isEditing || !override.pauseBreak.enabled}
-                            />
-                          </label>
-                        </div>
+                    <div className="table-wrap">
+                      <div className="row align-center justify-between absence-toolbar">
+                        <span className="text-muted">
+                          {showOnlyShareable
+                            ? `${visibleUnavailabilityItems.length} ausencias com motivo compartilhavel`
+                            : `${unavailabilityItems.length} ausencias cadastradas`}
+                        </span>
+                        <label className="checkbox-row">
+                          <input
+                            type="checkbox"
+                            checked={showOnlyShareable}
+                            onChange={(e) =>
+                              setShowOnlyShareableByProfessional((prev) => ({
+                                ...prev,
+                                [professional.id]: e.target.checked
+                              }))
+                            }
+                          />
+                          Mostrar apenas com motivo compartilhavel
+                        </label>
                       </div>
-                    ) : null}
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Início</th>
+                            <th>Fim</th>
+                            <th>Motivo</th>
+                            <th>Bot pode informar motivo</th>
+                            <th>Ações</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {visibleUnavailabilityItems.map((item) => (
+                            <tr key={item.id} className={item.share_reason_with_client ? "absence-row-shareable" : ""}>
+                              <td>{formatIsoToDisplayDateTimeInTimezone(item.starts_at, draft.timezone)}</td>
+                              <td>{formatIsoToDisplayDateTimeInTimezone(item.ends_at, draft.timezone)}</td>
+                              <td>{item.reason ?? "-"}</td>
+                              <td>
+                                <label className="checkbox-row">
+                                  <input
+                                    type="checkbox"
+                                    checked={item.share_reason_with_client}
+                                    onChange={(e) =>
+                                      setUnavailabilityReasonVisibility(
+                                        professional.id,
+                                        item.id,
+                                        e.target.checked
+                                      )
+                                    }
+                                    disabled={!isEditing}
+                                  />
+                                  {item.share_reason_with_client ? "Sim" : "Não"}
+                                </label>
+                              </td>
+                              <td>
+                                <div className="row actions-row">
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    onClick={() => startEditingUnavailability(professional.id, item)}
+                                    disabled={!isEditing}
+                                  >
+                                    Ajustar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className="danger"
+                                    onClick={() => deleteUnavailability(professional.id, item.id)}
+                                    disabled={!isEditing}
+                                  >
+                                    Excluir
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                          {visibleUnavailabilityItems.length === 0 ? (
+                            <tr>
+                              <td colSpan={5}>
+                                {showOnlyShareable
+                                  ? "Nenhuma ausência com motivo compartilhável."
+                                  : "Nenhuma ausência cadastrada."}
+                              </td>
+                            </tr>
+                          ) : null}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
-                );
-              })}
-            </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
 
-            <div className="col absence-panel">
-              <div className="row align-center justify-between">
-                <strong>Ausencias programadas</strong>
-                <span className="text-muted">Bloqueia disponibilidade em dias futuros.</span>
-              </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
 
-              <div className="absence-grid">
-                <label className="col">
-                  Inicio da ausencia
-                  <input
-                    type="datetime-local"
-                    value={unavailabilityDrafts[professional.id]?.startsAt ?? ""}
-                    onChange={(e) => updateUnavailabilityDraft(professional.id, { startsAt: e.target.value })}
-                    disabled={!isEditing}
-                  />
-                </label>
-
-                <label className="col">
-                  Fim da ausencia
-                  <input
-                    type="datetime-local"
-                    value={unavailabilityDrafts[professional.id]?.endsAt ?? ""}
-                    onChange={(e) => updateUnavailabilityDraft(professional.id, { endsAt: e.target.value })}
-                    disabled={!isEditing}
-                  />
-                </label>
-
-                <label className="col absence-reason">
-                  Motivo (opcional)
-                  <input
-                    value={unavailabilityDrafts[professional.id]?.reason ?? ""}
-                    onChange={(e) => updateUnavailabilityDraft(professional.id, { reason: e.target.value })}
-                    placeholder="Ex.: Ferias, congresso, afastamento"
-                    disabled={!isEditing}
-                  />
-                </label>
-              </div>
-
-              <div className="row actions-row">
-                <button type="button" onClick={() => saveUnavailability(professional.id)} disabled={!isEditing}>
-                  {unavailabilityDrafts[professional.id]?.id ? "Atualizar ausencia" : "Adicionar ausencia"}
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => clearUnavailabilityForm(professional.id)}
-                  disabled={!isEditing}
-                >
-                  Limpar formulario
-                </button>
-              </div>
-
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Inicio</th>
-                      <th>Fim</th>
-                      <th>Motivo</th>
-                      <th>Acoes</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(unavailabilityByProfessional[professional.id] ?? []).map((item) => (
-                      <tr key={item.id}>
-                        <td>{formatIsoToDisplayDateTimeInTimezone(item.starts_at, draft.timezone)}</td>
-                        <td>{formatIsoToDisplayDateTimeInTimezone(item.ends_at, draft.timezone)}</td>
-                        <td>{item.reason ?? "-"}</td>
-                        <td>
-                          <div className="row actions-row">
-                            <button
-                              type="button"
-                              className="secondary"
-                              onClick={() => startEditingUnavailability(professional.id, item)}
-                              disabled={!isEditing}
-                            >
-                              Ajustar
-                            </button>
-                            <button
-                              type="button"
-                              className="danger"
-                              onClick={() => deleteUnavailability(professional.id, item.id)}
-                              disabled={!isEditing}
-                            >
-                              Excluir
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                    {(unavailabilityByProfessional[professional.id] ?? []).length === 0 ? (
-                      <tr>
-                        <td colSpan={4}>Nenhuma ausencia cadastrada.</td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div>
-              {isEditing ? (
-                <div className="row">
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const ok = await saveSchedule(professional.id);
-                      if (ok) {
-                        setEditingProfessionalId(null);
-                      }
-                    }}
-                  >
-                    Salvar horario
-                  </button>
-                  <button type="button" className="secondary" onClick={cancelEditingSchedule}>
-                    Cancelar
-                  </button>
-                </div>
-              ) : (
-                <button type="button" className="secondary" onClick={() => startEditingSchedule(professional.id)}>
-                  Editar horario
-                </button>
-              )}
-            </div>
           </div>
         );
       })}
@@ -1078,3 +1193,4 @@ export default function SchedulesPage() {
     </section>
   );
 }
+

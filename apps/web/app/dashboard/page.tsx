@@ -3,13 +3,20 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { Button } from "@/components/ui/button";
 
 type DashboardAppointment = {
   id: string;
+  tenant_id: string;
+  client_id: string | null;
+  service_id: string;
+  specialty_id: string | null;
   professional_id: string;
+  source: string;
   starts_at: string;
   ends_at: string;
   status: string;
+  cancellation_reason: string | null;
   clients: { full_name: string | null } | null;
   services: { name: string | null; duration_min: number | null } | null;
   professionals: { name: string | null } | null;
@@ -41,7 +48,7 @@ type UnavailabilityRow = {
 };
 type ProfessionalServiceRow = {
   professional_id: string;
-  services: { duration_min: number | null; interval_min: number | null } | null;
+  services: { duration_min: number | null } | null;
 };
 
 const CALENDAR_SLOT_MINUTES = 30;
@@ -63,6 +70,18 @@ function statusMeta(status: string) {
 
   if (value === "pending") {
     return { label: "Pendente", className: "status-pill status-pending" };
+  }
+
+  if (value === "done") {
+    return { label: "Concluído", className: "status-pill status-confirmed" };
+  }
+
+  if (value === "rescheduled") {
+    return { label: "Remarcado", className: "status-pill status-pending" };
+  }
+
+  if (value === "no_show") {
+    return { label: "Não compareceu", className: "status-pill status-cancelled" };
   }
 
   if (value === "available") {
@@ -311,6 +330,7 @@ export default function DashboardPage() {
   const [editingAppointmentId, setEditingAppointmentId] = useState<string | null>(null);
   const [editStartsAt, setEditStartsAt] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const todayRange = useMemo(() => {
     const anchor = new Date(`${selectedDate}T00:00:00`);
@@ -368,7 +388,7 @@ export default function DashboardPage() {
 
   const dailyStats = useMemo(() => {
     const occupiedByDay: Record<string, number> = {};
-    const activeStatuses = new Set(["scheduled", "confirmed", "pending"]);
+    const activeStatuses = new Set(["scheduled", "confirmed"]);
     for (const item of appointments) {
       const normalizedStatus = item.status.toLowerCase();
       if (selectedStatus) {
@@ -504,7 +524,7 @@ export default function DashboardPage() {
       let appointmentQuery = supabase
         .from("appointments")
         .select(
-          "id, professional_id, starts_at, ends_at, status, clients(full_name), services(name, duration_min), professionals(name)"
+          "id, tenant_id, client_id, service_id, specialty_id, professional_id, source, starts_at, ends_at, status, cancellation_reason, clients(full_name), services(name, duration_min), professionals(name)"
         )
         .gte("starts_at", todayRange.start)
         .lt("starts_at", todayRange.end)
@@ -514,7 +534,7 @@ export default function DashboardPage() {
         appointmentQuery = appointmentQuery.eq("professional_id", selectedProfessionalId);
       }
       if (selectedStatus) {
-        appointmentQuery = appointmentQuery.eq("status", selectedStatus);
+        appointmentQuery = appointmentQuery.eq("status", selectedStatus as "scheduled" | "confirmed" | "cancelled" | "done" | "rescheduled" | "no_show");
       }
 
       const { data, error: queryError } = await appointmentQuery;
@@ -547,7 +567,7 @@ export default function DashboardPage() {
         .in("professional_id", ids);
       const { data: professionalServicesData } = await supabase
         .from("professional_services")
-        .select("professional_id, services(duration_min, interval_min)")
+        .select("professional_id, services(duration_min)")
         .in("professional_id", ids);
 
       const unavailabilityTable = (supabase as any).from("professional_unavailability");
@@ -570,7 +590,7 @@ export default function DashboardPage() {
       for (const row of (professionalServicesData ?? []) as ProfessionalServiceRow[]) {
         if (!row.professional_id || !row.services) continue;
         const duration = row.services.duration_min ?? 0;
-        const interval = row.services.interval_min ?? 0;
+        const interval = 0;
         const blockMinutes = duration + interval;
         if (blockMinutes <= 0) continue;
         if (!slotCandidatesByProfessional[row.professional_id]) {
@@ -598,25 +618,75 @@ export default function DashboardPage() {
 
     loadAccountContext();
     load();
-  }, [selectedProfessionalId, selectedStatus, todayRange.end, todayRange.start]);
+  }, [selectedProfessionalId, selectedStatus, todayRange.end, todayRange.start, refreshKey]);
 
-  async function handleDeleteAppointment(appointmentId: string) {
-    if (!confirm("Deseja realmente excluir este agendamento?")) return;
+  async function handleCancelAppointment(appointmentId: string) {
+    if (!confirm("Deseja realmente cancelar este agendamento?")) return;
     setError(null);
     setStatus(null);
     setActionLoading(true);
     const supabase = getSupabaseBrowserClient();
-    const { error: deleteError } = await supabase.from("appointments").delete().eq("id", appointmentId);
+    const { error: updateError } = await supabase
+      .from("appointments")
+      .update({
+        status: "cancelled",
+        cancellation_reason: "Cancelado manualmente na agenda"
+      })
+      .eq("id", appointmentId);
     setActionLoading(false);
-    if (deleteError) {
-      setError(deleteError.message);
+    if (updateError) {
+      setError(updateError.message);
       return;
     }
-    setAppointments((prev) => prev.filter((item) => item.id !== appointmentId));
-    setStatus("Agendamento excluido com sucesso.");
+    setAppointments((prev) =>
+      prev.map((item) =>
+        item.id === appointmentId
+          ? { ...item, status: "cancelled", cancellation_reason: "Cancelado manualmente na agenda" }
+          : item
+      )
+    );
+    setStatus("Agendamento cancelado com sucesso.");
   }
 
-  async function handleSaveAppointment(appointment: DashboardAppointment) {
+  async function handleCompleteAppointment(appointmentId: string) {
+    if (!confirm("Marcar este agendamento como Concluído?")) return;
+    setError(null);
+    setStatus(null);
+    setActionLoading(true);
+    const supabase = getSupabaseBrowserClient();
+    const { error: updateError } = await supabase
+      .from("appointments")
+      .update({ status: "done" })
+      .eq("id", appointmentId);
+    setActionLoading(false);
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+    setAppointments((prev) => prev.map((item) => (item.id === appointmentId ? { ...item, status: "done" } : item)));
+    setStatus("Agendamento Concluído com sucesso.");
+  }
+
+  async function handleNoShowAppointment(appointmentId: string) {
+    if (!confirm("Marcar este agendamento como no-show (Não compareceu)?")) return;
+    setError(null);
+    setStatus(null);
+    setActionLoading(true);
+    const supabase = getSupabaseBrowserClient();
+    const { error: updateError } = await supabase
+      .from("appointments")
+      .update({ status: "no_show" })
+      .eq("id", appointmentId);
+    setActionLoading(false);
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+    setAppointments((prev) => prev.map((item) => (item.id === appointmentId ? { ...item, status: "no_show" } : item)));
+    setStatus("Agendamento marcado como no-show.");
+  }
+
+  async function handleRescheduleAppointment(appointment: DashboardAppointment) {
     if (!editStartsAt) return;
     setError(null);
     setStatus(null);
@@ -640,7 +710,7 @@ export default function DashboardPage() {
 
     const settings = scheduleByProfessional[appointment.professional_id];
     if (!isWithinSchedule(settings, startsAtIso, endsAtIso)) {
-      setError("Horario indisponivel.");
+      setError("Horário indisponível.");
       return;
     }
 
@@ -657,63 +727,106 @@ export default function DashboardPage() {
       return;
     }
 
+    const sourceValue =
+      appointment.source === "client_link" || appointment.source === "ai" || appointment.source === "professional"
+        ? appointment.source
+        : "professional";
+
     setActionLoading(true);
     const supabase = getSupabaseBrowserClient();
+    const { data: inserted, error: insertError } = await supabase
+      .from("appointments")
+      .insert({
+        tenant_id: appointment.tenant_id,
+        client_id: appointment.client_id,
+        service_id: appointment.service_id,
+        specialty_id: appointment.specialty_id,
+        professional_id: appointment.professional_id,
+        starts_at: startsAtIso,
+        ends_at: endsAtIso,
+        status: "scheduled",
+        source: sourceValue,
+        assigned_at: new Date().toISOString()
+      })
+      .select("id")
+      .single();
+
+    if (insertError || !inserted) {
+      setActionLoading(false);
+      if (insertError?.code === "23P01") {
+        setError("Já existe um agendamento nesse horário para o profissional.");
+        return;
+      }
+      setError(insertError?.message ?? "Não foi possível remarcar.");
+      return;
+    }
+
     const { error: updateError } = await supabase
       .from("appointments")
-      .update({ starts_at: startsAtIso, ends_at: endsAtIso })
+      .update({
+        status: "rescheduled",
+        cancellation_reason: `Remarcado manualmente para ${inserted.id}`
+      })
       .eq("id", appointment.id);
     setActionLoading(false);
 
     if (updateError) {
-      if (updateError.code === "23P01") {
-        setError("Ja existe um agendamento nesse horario para o profissional.");
-        return;
-      }
       setError(updateError.message);
       return;
     }
 
     setAppointments((prev) =>
-      [...prev.map((item) => (item.id === appointment.id ? { ...item, starts_at: startsAtIso, ends_at: endsAtIso } : item))].sort(
-        (a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime()
-      )
+      [
+        ...prev.map((item) =>
+          item.id === appointment.id
+            ? { ...item, status: "rescheduled", cancellation_reason: `Remarcado manualmente para ${inserted.id}` }
+            : item
+        ),
+        {
+          ...appointment,
+          id: inserted.id,
+          starts_at: startsAtIso,
+          ends_at: endsAtIso,
+          status: "scheduled",
+          cancellation_reason: null
+        }
+      ].sort((a, b) => new Date(a.starts_at).getTime() - new Date(b.starts_at).getTime())
     );
     setEditingAppointmentId(null);
     setEditStartsAt("");
-    setStatus("Agendamento atualizado com sucesso.");
+    setStatus("Remarcacao concluida com sucesso.");
   }
 
   return (
     <section className="page-stack">
       <div className="card row align-center justify-between page-title-row">
-        <h1>Painel - Agenda</h1>
+        <h1>Agenda</h1>
         <Link href="/appointments/new">Novo agendamento</Link>
       </div>
 
       <div className="card">
         <div className="row align-center">
-          <button
+          <Button
             type="button"
-            className={viewMode === "day" ? "" : "secondary"}
+            variant={viewMode === "day" ? "default" : "outline"}
             onClick={() => setViewMode("day")}
           >
             Dia
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className={viewMode === "week" ? "" : "secondary"}
+            variant={viewMode === "week" ? "default" : "outline"}
             onClick={() => setViewMode("week")}
           >
             Semana
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
-            className={viewMode === "month" ? "" : "secondary"}
+            variant={viewMode === "month" ? "default" : "outline"}
             onClick={() => setViewMode("month")}
           >
             Mes
-          </button>
+          </Button>
           <label className="inline-field">
             <span>Profissional</span>
             <select value={selectedProfessionalId} onChange={(e) => setSelectedProfessionalId(e.target.value)}>
@@ -730,32 +843,41 @@ export default function DashboardPage() {
 
       <div className="card">
         <div className="date-nav-row">
-          <button type="button" className="secondary" onClick={() => shiftDate(viewMode === "week" ? -7 : -1)}>
+          <Button type="button" variant="outline" onClick={() => shiftDate(viewMode === "week" ? -7 : -1)}>
             <span className="date-nav-btn">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M15 18L9 12L15 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               {viewMode === "day" ? "Dia anterior" : viewMode === "week" ? "Semana anterior" : "Mes anterior"}
             </span>
-          </button>
+          </Button>
           <input className="date-nav-input" type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
-          <button type="button" className="secondary" onClick={() => shiftDate(viewMode === "week" ? 7 : 1)}>
+          <Button type="button" variant="outline" onClick={() => shiftDate(viewMode === "week" ? 7 : 1)}>
             <span className="date-nav-btn">
-              {viewMode === "day" ? "Proximo dia" : viewMode === "week" ? "Proxima semana" : "Proximo mes"}
+              {viewMode === "day" ? "Próximo dia" : viewMode === "week" ? "Próxima semana" : "Próximo mês"}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M9 18L15 12L9 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </span>
-          </button>
+          </Button>
+          <Button type="button" variant="outline" onClick={() => setRefreshKey((value) => value + 1)}>
+            <span className="date-nav-btn">
+              Atualizar agenda
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M21 12a9 9 0 1 1-2.64-6.36" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M21 3v6h-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+          </Button>
           <label className="inline-field date-nav-status-field">
             <span>Status</span>
             <select value={selectedStatus} onChange={(e) => setSelectedStatus(e.target.value)}>
               <option value="">Todos</option>
               <option value="scheduled">Agendado</option>
               <option value="confirmed">Confirmado</option>
-              <option value="pending">Pendente</option>
               <option value="cancelled">Cancelado</option>
-              <option value="done">Concluido</option>
+              <option value="done">Concluído</option>
+              <option value="no_show">Não compareceu</option>
             </select>
           </label>
         </div>
@@ -817,16 +939,16 @@ export default function DashboardPage() {
                             onChange={(e) => setEditStartsAt(e.target.value)}
                           />
                           <div className="row actions-row">
-                            <button
+                            <Button
                               type="button"
-                              onClick={() => handleSaveAppointment(item)}
+                              onClick={() => handleRescheduleAppointment(item)}
                               disabled={actionLoading || !editStartsAt}
                             >
-                              Salvar
-                            </button>
-                            <button
+                              Remarcar
+                            </Button>
+                            <Button
                               type="button"
-                              className="secondary"
+                              variant="outline"
                               onClick={() => {
                                 setEditingAppointmentId(null);
                                 setEditStartsAt("");
@@ -834,30 +956,46 @@ export default function DashboardPage() {
                               disabled={actionLoading}
                             >
                               Cancelar
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       ) : (
                         <div className="row actions-row">
-                          <button
+                          <Button
                             type="button"
-                            className="secondary"
+                            variant="outline"
                             onClick={() => {
                               setEditingAppointmentId(item.id);
                               setEditStartsAt(formatInputDateTimeFromIso(item.starts_at));
                             }}
                             disabled={actionLoading}
                           >
-                            Alterar
-                          </button>
-                          <button
+                            Remarcar
+                          </Button>
+                          <Button
                             type="button"
-                            className="danger"
-                            onClick={() => handleDeleteAppointment(item.id)}
+                            variant="destructive"
+                            onClick={() => handleCancelAppointment(item.id)}
                             disabled={actionLoading}
                           >
-                            Excluir
-                          </button>
+                            Cancelar
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => handleCompleteAppointment(item.id)}
+                            disabled={actionLoading || ["done", "cancelled", "rescheduled", "no_show"].includes(item.status.toLowerCase())}
+                          >
+                            Concluir
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => handleNoShowAppointment(item.id)}
+                            disabled={actionLoading || ["done", "cancelled", "rescheduled", "no_show"].includes(item.status.toLowerCase())}
+                          >
+                            Não compareceu
+                          </Button>
                         </div>
                       )}
                     </td>
@@ -907,4 +1045,5 @@ export default function DashboardPage() {
     </section>
   );
 }
+
 

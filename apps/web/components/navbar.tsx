@@ -1,7 +1,9 @@
 ﻿"use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useState } from "react";
+import { ChevronRight, ChevronDown } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { AccessPath, parseAccessPath } from "@/lib/access-path";
 
@@ -13,12 +15,16 @@ type ProfileState = {
 
 type TenantRow = {
   type: "individual" | "group";
+  name: string;
+  logo_url: string | null;
 } | null;
 
 export function Navbar() {
   const [profile, setProfile] = useState<ProfileState>(null);
   const [accessPath, setAccessPath] = useState<AccessPath>("professional");
   const [tenantAccountType, setTenantAccountType] = useState<"individual" | "group" | null>(null);
+  const [tenantName, setTenantName] = useState<string>("Agenda Profissional");
+  const [tenantLogoUrl, setTenantLogoUrl] = useState<string>("/brand/agenda-logo.png");
 
   useEffect(() => {
     const supabase = getSupabaseBrowserClient();
@@ -34,6 +40,8 @@ export function Navbar() {
         setAccessPath("professional");
         setProfile(null);
         setTenantAccountType(null);
+        setTenantName("Agenda Profissional");
+        setTenantLogoUrl("/brand/agenda-logo.png");
         return;
       }
 
@@ -51,6 +59,8 @@ export function Navbar() {
       if (!typedProfile) {
         setProfile(null);
         setTenantAccountType(null);
+        setTenantName("Agenda Profissional");
+        setTenantLogoUrl("/brand/agenda-logo.png");
         return;
       }
 
@@ -58,19 +68,21 @@ export function Navbar() {
 
       const { data: tenantData } = await supabase
         .from("tenants")
-        .select("type")
+        .select("type, name, logo_url")
         .eq("id", typedProfile.tenant_id)
         .maybeSingle();
 
       if (!active) return;
 
       const accountType = (tenantData as TenantRow)?.type;
+      const tenantInfo = tenantData as TenantRow;
       if (accountType === "individual" || accountType === "group") {
         setTenantAccountType(accountType);
-        return;
+      } else {
+        setTenantAccountType(null);
       }
-
-      setTenantAccountType(null);
+      setTenantName(tenantInfo?.name ?? "Agenda Profissional");
+      setTenantLogoUrl(tenantInfo?.logo_url ?? "/brand/agenda-logo.png");
     }
 
     loadProfile();
@@ -99,6 +111,18 @@ export function Navbar() {
 
   return (
     <aside className="side-nav">
+      <div className="side-nav-brand">
+        <Image
+          src={tenantLogoUrl || "/brand/agenda-logo.png"}
+          alt={`Logo ${tenantName}`}
+          className="side-nav-logo"
+          width={36}
+          height={36}
+          unoptimized
+          onError={() => setTenantLogoUrl("/brand/agenda-logo.png")}
+        />
+        <strong>{tenantName}</strong>
+      </div>
       {profile ? <small className="side-nav-meta">{profile.full_name}</small> : null}
 
       <nav className="side-nav-links">
@@ -106,10 +130,16 @@ export function Navbar() {
           <Link href="/client-area">Área do cliente</Link>
         ) : (
           <>
-            <Link href="/dashboard">Painel</Link>
+            <Link href="/dashboard">Agenda</Link>
             {showPjRegistrationsMenu ? (
               <details className="side-nav-menu">
-                <summary className="side-nav-menu-summary">Cadastros</summary>
+                <summary className="side-nav-menu-summary">
+                  <span>Cadastros</span>
+                  <span className="side-nav-menu-icon" aria-hidden="true">
+                    <ChevronRight size={16} className="icon-closed" />
+                    <ChevronDown size={16} className="icon-open" />
+                  </span>
+                </summary>
                 <div className="side-nav-menu-panel">
                   <Link href="/clients">Clientes</Link>
                   <Link href="/services">Serviços</Link>
@@ -123,8 +153,19 @@ export function Navbar() {
             {canManage && !showPjRegistrationsMenu ? <Link href="/professionals">Profissionais</Link> : null}
             {canManage && !showPjRegistrationsMenu ? <Link href="/schedules">Horários</Link> : null}
             {canManage ? <Link href="/appointments/new">Novo agendamento</Link> : null}
-            {canManage ? <Link href="/whatsapp">WhatsApp + IA</Link> : null}
-            <Link href="/onboarding">Configuração inicial</Link>
+            <details className="side-nav-menu">
+              <summary className="side-nav-menu-summary">
+                <span>Configurações</span>
+                <span className="side-nav-menu-icon" aria-hidden="true">
+                  <ChevronRight size={16} className="icon-closed" />
+                  <ChevronDown size={16} className="icon-open" />
+                </span>
+              </summary>
+              <div className="side-nav-menu-panel">
+                <Link href="/onboarding">Configuração inicial</Link>
+                {canManage ? <Link href="/whatsapp">WhatsApp + IA</Link> : null}
+              </div>
+            </details>
           </>
         )}
       </nav>
