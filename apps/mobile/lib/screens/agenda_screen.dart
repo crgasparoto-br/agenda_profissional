@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:mobile/theme/app_theme.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -33,7 +33,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
   DateTime _selectedDate = DateTime.now();
   AgendaViewMode _viewMode = AgendaViewMode.day;
   String? _selectedProfessionalId;
-  String _selectedStatus = '';
+  String _selectedStatus = 'scheduled';
 
   String _formatTime(DateTime utcDateTime, String timezone) {
     final location = _resolveLocation(timezone);
@@ -745,9 +745,15 @@ class _AgendaScreenState extends State<AgendaScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                       child: Card(
                         child: Padding(
-                          padding: const EdgeInsets.all(8),
+                          padding: const EdgeInsets.all(12),
                           child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
+                              Text(
+                                'Filtros da agenda',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 10),
                               DropdownButtonFormField<String?>(
                                 initialValue: _selectedProfessionalId,
                                 decoration: const InputDecoration(
@@ -767,6 +773,40 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                 onChanged: (value) async {
                                   setState(
                                       () => _selectedProfessionalId = value);
+                                  await _loadAppointments();
+                                },
+                              ),
+                              const SizedBox(height: 8),
+                              DropdownButtonFormField<String>(
+                                initialValue: _selectedStatus,
+                                isDense: true,
+                                decoration: const InputDecoration(
+                                  labelText: 'Status',
+                                  contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 10),
+                                ),
+                                items: const [
+                                  DropdownMenuItem(
+                                      value: '', child: Text('Todos')),
+                                  DropdownMenuItem(
+                                      value: 'scheduled',
+                                      child: Text('Agendado')),
+                                  DropdownMenuItem(
+                                      value: 'confirmed',
+                                      child: Text('Confirmado')),
+                                  DropdownMenuItem(
+                                      value: 'cancelled',
+                                      child: Text('Cancelado')),
+                                  DropdownMenuItem(
+                                      value: 'done',
+                                      child: Text('Concluído')),
+                                  DropdownMenuItem(
+                                      value: 'no_show',
+                                      child: Text('Não compareceu')),
+                                ],
+                                onChanged: (value) async {
+                                  setState(
+                                      () => _selectedStatus = value ?? '');
                                   await _loadAppointments();
                                 },
                               ),
@@ -849,85 +889,56 @@ class _AgendaScreenState extends State<AgendaScreen> {
                       child: Card(
                         child: Padding(
                           padding: const EdgeInsets.all(12),
-                          child: Row(
+                          child: Column(
                             children: [
-                              IconButton(
-                                tooltip: _previousLabel(),
-                                onPressed: () => _shiftAgendaDate(
-                                    _viewMode == AgendaViewMode.week ? -7 : -1),
-                                icon: const Icon(Icons.chevron_left),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: InkWell(
-                                  onTap: _pickAgendaDate,
-                                  child: Center(
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(Icons.calendar_today,
-                                            size: 16),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          _formatShortDate(_selectedDate),
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleMedium,
+                              Row(
+                                children: [
+                                  IconButton(
+                                    tooltip: _previousLabel(),
+                                    onPressed: () => _shiftAgendaDate(
+                                        _viewMode == AgendaViewMode.week ? -7 : -1),
+                                    icon: const Icon(Icons.chevron_left),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: InkWell(
+                                      onTap: _pickAgendaDate,
+                                      child: Center(
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.calendar_today,
+                                                size: 16),
+                                            const SizedBox(width: 6),
+                                            Text(
+                                              _formatShortDate(_selectedDate),
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleMedium,
+                                            ),
+                                          ],
                                         ),
-                                      ],
+                                      ),
                                     ),
                                   ),
-                                ),
+                                  const SizedBox(width: 8),
+                                  IconButton(
+                                    tooltip: _nextLabel(),
+                                    onPressed: () => _shiftAgendaDate(
+                                        _viewMode == AgendaViewMode.week ? 7 : 1),
+                                    icon: const Icon(Icons.chevron_right),
+                                  ),
+                                ],
                               ),
-                              const SizedBox(width: 8),
-                              IconButton(
-                                tooltip: _nextLabel(),
-                                onPressed: () => _shiftAgendaDate(
-                                    _viewMode == AgendaViewMode.week ? 7 : 1),
-                                icon: const Icon(Icons.chevron_right),
-                              ),
-                              const SizedBox(width: 8),
+                              const SizedBox(height: 8),
                               OutlinedButton.icon(
-                                onPressed: _actionLoading ? null : _loadAppointments,
+                                style: OutlinedButton.styleFrom(
+                                  minimumSize: const Size.fromHeight(42),
+                                ),
+                                onPressed:
+                                    _actionLoading ? null : _loadAppointments,
                                 icon: const Icon(Icons.refresh, size: 16),
                                 label: const Text('Atualizar agenda'),
-                              ),
-                              const SizedBox(width: 8),
-                              SizedBox(
-                                width: 190,
-                                child: DropdownButtonFormField<String>(
-                                  initialValue: _selectedStatus,
-                                  isDense: true,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Status',
-                                    contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 10, vertical: 10),
-                                  ),
-                                  items: const [
-                                    DropdownMenuItem(
-                                        value: '', child: Text('Todos')),
-                                    DropdownMenuItem(
-                                        value: 'scheduled',
-                                        child: Text('Agendado')),
-                                    DropdownMenuItem(
-                                        value: 'confirmed',
-                                        child: Text('Confirmado')),
-                                    DropdownMenuItem(
-                                        value: 'cancelled',
-                                        child: Text('Cancelado')),
-                                    DropdownMenuItem(
-                                        value: 'done',
-                                        child: Text('Concluído')),
-                                    DropdownMenuItem(
-                                        value: 'no_show',
-                                        child: Text('Não compareceu')),
-                                  ],
-                                  onChanged: (value) async {
-                                    setState(
-                                        () => _selectedStatus = value ?? '');
-                                    await _loadAppointments();
-                                  },
-                                ),
                               ),
                             ],
                           ),

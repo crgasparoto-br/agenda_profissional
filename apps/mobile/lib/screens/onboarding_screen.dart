@@ -1,7 +1,7 @@
-﻿import 'dart:typed_data';
-
+﻿
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/app_exception.dart';
 import '../models/bootstrap_tenant.dart';
@@ -44,6 +44,33 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     'svg': 'image/svg+xml',
   };
 
+  String _normalizePhone(String value) {
+    var digits = value.replaceAll(RegExp(r'\D'), '');
+    if (digits.startsWith('55') && digits.length >= 12) {
+      digits = digits.substring(2);
+    }
+    while (digits.length > 11 && digits.startsWith('0')) {
+      digits = digits.substring(1);
+    }
+    if (digits.length > 11) {
+      digits = digits.substring(digits.length - 11);
+    }
+    return digits;
+  }
+
+  String _formatPhoneDigits(String value) {
+    final digits = _normalizePhone(value);
+    if (digits.isEmpty) return '';
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 6) {
+      return '(${digits.substring(0, 2)}) ${digits.substring(2)}';
+    }
+    if (digits.length <= 10) {
+      return '(${digits.substring(0, 2)}) ${digits.substring(2, 6)}-${digits.substring(6)}';
+    }
+    return '(${digits.substring(0, 2)}) ${digits.substring(2, 7)}-${digits.substring(7)}';
+  }
+
   @override
   void dispose() {
     _tenantNameController.dispose();
@@ -84,7 +111,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         _tenantType = setup.tenantType;
         _tenantNameController.text = setup.tenantName;
         _fullNameController.text = setup.fullName;
-        _phoneController.text = setup.phone ?? '';
+        _phoneController.text = _formatPhoneDigits(setup.phone ?? '');
         _logoUrl = setup.logoUrl;
       } else {
         final prefill = (user.userMetadata?['full_name'] ?? '') as String;
@@ -158,6 +185,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       final resolvedFullName = _tenantType == TenantType.individual
           ? tenantName
           : _fullNameController.text.trim();
+      final normalizedPhone = _normalizePhone(_phoneController.text);
 
       if (tenantName.length < 2) {
         setState(() => _error = 'Nome profissional ou da empresa inválido.');
@@ -176,7 +204,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           tenantType: _tenantType,
           tenantName: tenantName,
           fullName: resolvedFullName,
-          phone: _phoneController.text.trim(),
+          phone: normalizedPhone,
           logoUrl: nextLogoUrl,
         );
 
@@ -195,7 +223,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           tenantType: _tenantType,
           tenantName: tenantName,
           fullName: resolvedFullName,
-          phone: _phoneController.text.trim(),
+          phone: normalizedPhone,
         ),
       );
 
@@ -350,6 +378,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     controller: _phoneController,
                     decoration: const InputDecoration(labelText: 'Telefone'),
                     keyboardType: TextInputType.phone,
+                    inputFormatters: const [_BrazilPhoneInputFormatter()],
                   ),
                   const SizedBox(height: 12),
                   OutlinedButton.icon(
@@ -400,6 +429,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                               : 'Concluir configuração',
                     ),
                   ),
+                  if (_isInitialized) ...[
+                    const SizedBox(height: 10),
+                    OutlinedButton(
+                      onPressed: _loading
+                          ? null
+                          : () => Navigator.pushReplacementNamed(context, '/menu'),
+                      child: const Text('Ir para menu principal'),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -409,3 +447,41 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     );
   }
 }
+
+class _BrazilPhoneInputFormatter extends TextInputFormatter {
+  const _BrazilPhoneInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    var digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+    if (digits.startsWith('55') && digits.length >= 12) {
+      digits = digits.substring(2);
+    }
+    while (digits.length > 11 && digits.startsWith('0')) {
+      digits = digits.substring(1);
+    }
+    if (digits.length > 11) {
+      digits = digits.substring(digits.length - 11);
+    }
+
+    final formatted = _formatDigits(digits);
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+
+  String _formatDigits(String digits) {
+    if (digits.isEmpty) return '';
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 6) return '(${digits.substring(0, 2)}) ${digits.substring(2)}';
+    if (digits.length <= 10) {
+      return '(${digits.substring(0, 2)}) ${digits.substring(2, 6)}-${digits.substring(6)}';
+    }
+    return '(${digits.substring(0, 2)}) ${digits.substring(2, 7)}-${digits.substring(7)}';
+  }
+}
+

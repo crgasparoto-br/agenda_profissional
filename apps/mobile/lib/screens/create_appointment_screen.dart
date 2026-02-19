@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import '../models/app_exception.dart';
@@ -36,6 +37,20 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
   final _clientPhoneController = TextEditingController();
   bool _anyAvailable = true;
   DateTime _start = DateTime.now().add(const Duration(hours: 1));
+
+  String _normalizePhone(String value) {
+    var digits = value.replaceAll(RegExp(r'\D'), '');
+    if (digits.startsWith('55') && digits.length >= 12) {
+      digits = digits.substring(2);
+    }
+    while (digits.length > 11 && digits.startsWith('0')) {
+      digits = digits.substring(1);
+    }
+    if (digits.length > 11) {
+      digits = digits.substring(digits.length - 11);
+    }
+    return digits;
+  }
 
   String? _textOrNull(String value) {
     final trimmed = value.trim();
@@ -116,7 +131,7 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
               ? _textOrNull(_clientNameController.text)
               : null,
           clientPhone: _clientId == null
-              ? _textOrNull(_clientPhoneController.text)
+              ? _textOrNull(_normalizePhone(_clientPhoneController.text))
               : null,
           serviceId: _serviceId!,
           startsAt: _start,
@@ -269,6 +284,7 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
                     TextField(
                       controller: _clientPhoneController,
                       keyboardType: TextInputType.phone,
+                      inputFormatters: const [_BrazilPhoneInputFormatter()],
                       decoration: const InputDecoration(
                           labelText: 'WhatsApp do cliente'),
                     ),
@@ -357,5 +373,42 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
         ],
       ),
     );
+  }
+}
+
+class _BrazilPhoneInputFormatter extends TextInputFormatter {
+  const _BrazilPhoneInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    var digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+    if (digits.startsWith('55') && digits.length >= 12) {
+      digits = digits.substring(2);
+    }
+    while (digits.length > 11 && digits.startsWith('0')) {
+      digits = digits.substring(1);
+    }
+    if (digits.length > 11) {
+      digits = digits.substring(digits.length - 11);
+    }
+
+    final formatted = _formatDigits(digits);
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+
+  String _formatDigits(String digits) {
+    if (digits.isEmpty) return '';
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 6) return '(${digits.substring(0, 2)}) ${digits.substring(2)}';
+    if (digits.length <= 10) {
+      return '(${digits.substring(0, 2)}) ${digits.substring(2, 6)}-${digits.substring(6)}';
+    }
+    return '(${digits.substring(0, 2)}) ${digits.substring(2, 7)}-${digits.substring(7)}';
   }
 }

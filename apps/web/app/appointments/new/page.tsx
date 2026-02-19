@@ -5,7 +5,7 @@ import { CreateAppointmentInputSchema } from "@agenda-profissional/shared";
 import type { Tables } from "@agenda-profissional/shared/database.types";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { getFunctionErrorMessage } from "@/lib/function-error";
-import { formatPhone } from "@/lib/phone";
+import { formatPhone, normalizePhone } from "@/lib/phone";
 
 type Option = { id: string; label: string };
 type ClientOption = Pick<Tables<"clients">, "id" | "full_name">;
@@ -82,7 +82,7 @@ export default function NewAppointmentPage() {
     const parsed = CreateAppointmentInputSchema.safeParse({
       client_id: clientId || null,
       client_name: clientId ? null : clientName || null,
-      client_phone: clientId ? null : clientPhone || null,
+      client_phone: clientId ? null : normalizePhone(clientPhone) || null,
       service_id: serviceId,
       starts_at: new Date(startsAt).toISOString(),
       ends_at: new Date(endsAt).toISOString(),

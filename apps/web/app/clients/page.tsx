@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
-import { formatPhone } from "@/lib/phone";
+import { formatPhone, normalizePhone } from "@/lib/phone";
 
 type ClientRow = {
   id: string;
@@ -57,7 +57,7 @@ export default function ClientsPage() {
     const { error: insertError } = await supabase.from("clients").insert({
       tenant_id: tenantId,
       full_name: fullName,
-      phone: phone || null,
+      phone: normalizePhone(phone) || null,
       notes: notes || null
     });
 
@@ -76,7 +76,7 @@ export default function ClientsPage() {
   function startEditing(client: ClientRow) {
     setEditingClientId(client.id);
     setEditFullName(client.full_name);
-    setEditPhone(client.phone ?? "");
+    setEditPhone(formatPhone(client.phone ?? ""));
     setEditNotes(client.notes ?? "");
     setError(null);
     setStatus(null);
@@ -98,7 +98,7 @@ export default function ClientsPage() {
       .from("clients")
       .update({
         full_name: editFullName.trim(),
-        phone: editPhone.trim() || null,
+        phone: normalizePhone(editPhone) || null,
         notes: editNotes.trim() || null
       })
       .eq("id", clientId);
@@ -177,7 +177,7 @@ export default function ClientsPage() {
                           placeholder="(11) 99999-9999"
                         />
                       ) : (
-                        client.phone ?? "-"
+                        formatPhone(client.phone ?? "") || "-"
                       )}
                     </td>
                     <td>

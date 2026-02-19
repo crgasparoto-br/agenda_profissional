@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/tenant_service.dart';
@@ -24,6 +25,43 @@ class _ClientsScreenState extends State<ClientsScreen> {
   String? _tenantId;
   String? _editingId;
   List<Map<String, dynamic>> _clients = const [];
+
+  String _normalizePhone(String value) {
+    var digits = value.replaceAll(RegExp(r'\D'), '');
+
+    if (digits.startsWith('55') && digits.length >= 12) {
+      digits = digits.substring(2);
+    }
+
+    while (digits.length > 11 && digits.startsWith('0')) {
+      digits = digits.substring(1);
+    }
+
+    if (digits.length > 11) {
+      digits = digits.substring(digits.length - 11);
+    }
+
+    return digits;
+  }
+
+  String _formatPhoneDigits(String digitsInput) {
+    final digits = _normalizePhone(digitsInput);
+    if (digits.isEmpty) return '';
+
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 6) {
+      return '(${digits.substring(0, 2)}) ${digits.substring(2)}';
+    }
+    if (digits.length <= 10) {
+      return '(${digits.substring(0, 2)}) ${digits.substring(2, 6)}-${digits.substring(6)}';
+    }
+    return '(${digits.substring(0, 2)}) ${digits.substring(2, 7)}-${digits.substring(7)}';
+  }
+
+  String _formatPhone(String? value) {
+    if (value == null || value.trim().isEmpty) return 'Sem WhatsApp';
+    return _formatPhoneDigits(value);
+  }
 
   @override
   void initState() {
@@ -85,7 +123,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
       _error = null;
     });
     _nameController.text = (row['full_name'] as String?) ?? '';
-    _phoneController.text = (row['phone'] as String?) ?? '';
+    _phoneController.text = _formatPhoneDigits((row['phone'] as String?) ?? '');
     _notesController.text = (row['notes'] as String?) ?? '';
   }
 
@@ -102,10 +140,11 @@ class _ClientsScreenState extends State<ClientsScreen> {
       _status = null;
     });
     try {
+      final normalizedPhone = _normalizePhone(_phoneController.text);
       final payload = <String, dynamic>{
         'tenant_id': _tenantId,
         'full_name': _nameController.text.trim(),
-        'phone': _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
+        'phone': normalizedPhone.isEmpty ? null : normalizedPhone,
         'notes': _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
       };
       if (_editingId == null) {
@@ -168,6 +207,8 @@ class _ClientsScreenState extends State<ClientsScreen> {
                         const SizedBox(height: 8),
                         TextField(
                           controller: _phoneController,
+                          keyboardType: TextInputType.phone,
+                          inputFormatters: const [_BrazilPhoneInputFormatter()],
                           decoration: const InputDecoration(labelText: 'WhatsApp'),
                         ),
                         const SizedBox(height: 8),
@@ -220,7 +261,7 @@ class _ClientsScreenState extends State<ClientsScreen> {
                       final row = _clients[index];
                       return ListTile(
                         title: Text((row['full_name'] as String?) ?? '-'),
-                        subtitle: Text((row['phone'] as String?) ?? 'Sem WhatsApp'),
+                        subtitle: Text(_formatPhone(row['phone'] as String?)),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -246,3 +287,40 @@ class _ClientsScreenState extends State<ClientsScreen> {
   }
 }
 
+class _BrazilPhoneInputFormatter extends TextInputFormatter {
+  const _BrazilPhoneInputFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    var digits = newValue.text.replaceAll(RegExp(r'\D'), '');
+
+    if (digits.startsWith('55') && digits.length >= 12) {
+      digits = digits.substring(2);
+    }
+    while (digits.length > 11 && digits.startsWith('0')) {
+      digits = digits.substring(1);
+    }
+    if (digits.length > 11) {
+      digits = digits.substring(digits.length - 11);
+    }
+
+    final formatted = _formatDigits(digits);
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+
+  String _formatDigits(String digits) {
+    if (digits.isEmpty) return '';
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 6) return '(${digits.substring(0, 2)}) ${digits.substring(2)}';
+    if (digits.length <= 10) {
+      return '(${digits.substring(0, 2)}) ${digits.substring(2, 6)}-${digits.substring(6)}';
+    }
+    return '(${digits.substring(0, 2)}) ${digits.substring(2, 7)}-${digits.substring(7)}';
+  }
+}

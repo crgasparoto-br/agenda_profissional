@@ -7,7 +7,7 @@ import { BootstrapTenantInputSchema } from "@agenda-profissional/shared";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { parseAccessPath } from "@/lib/access-path";
 import { getFunctionErrorMessage } from "@/lib/function-error";
-import { formatPhone } from "@/lib/phone";
+import { formatPhone, normalizePhone } from "@/lib/phone";
 
 type ProfileRow = {
   id: string;
@@ -84,7 +84,7 @@ export default function OnboardingPage() {
 
       setTenantId(typedProfile.tenant_id);
       setFullName(typedProfile.full_name ?? "");
-      setPhone(typedProfile.phone ?? "");
+      setPhone(formatPhone(typedProfile.phone ?? ""));
 
       const { data: tenantData } = await supabase
         .from("tenants")
@@ -183,7 +183,7 @@ export default function OnboardingPage() {
           .from("profiles")
           .update({
             full_name: resolvedFullName,
-            phone: phone.trim() || null
+            phone: normalizePhone(phone) || null
           })
           .eq("id", userId);
 
@@ -202,7 +202,7 @@ export default function OnboardingPage() {
         tenant_type: tenantType,
         tenant_name: tenantName,
         full_name: resolvedFullName,
-        phone
+        phone: normalizePhone(phone)
       });
 
       if (!parsed.success) {

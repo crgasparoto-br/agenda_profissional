@@ -142,7 +142,7 @@ class SessionGate extends StatelessWidget {
       return const ClientAreaScreen();
     }
 
-    return const ProfessionalMenuScreen();
+    return const AgendaScreen();
   }
 }
 

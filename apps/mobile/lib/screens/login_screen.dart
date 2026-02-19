@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/auth_service.dart';
+import '../services/onboarding_service.dart';
 import '../theme/app_theme.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -17,6 +18,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _confirmController = TextEditingController();
   final _nameController = TextEditingController();
   final _authService = AuthService();
+  final _onboardingService = OnboardingService();
 
   bool _loading = false;
   bool _isSignUp = false;
@@ -75,12 +77,9 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text,
       );
 
+      final route = await _resolveRouteAfterSignIn(response.user);
       if (!mounted) return;
-      final path = _authService.resolveAccessPath(response.user);
-      Navigator.pushReplacementNamed(
-        context,
-        path == AccessPath.client ? '/client-area' : '/onboarding',
-      );
+      Navigator.pushReplacementNamed(context, route);
     } on AuthException catch (error) {
       final message = error.message.toLowerCase();
       if (message.contains('invalid login credentials')) {
@@ -102,6 +101,20 @@ class _LoginScreenState extends State<LoginScreen> {
         setState(() => _loading = false);
       }
     }
+  }
+
+  Future<String> _resolveRouteAfterSignIn(User? user) async {
+    final path = _authService.resolveAccessPath(user);
+    if (path == AccessPath.client) return '/client-area';
+
+    final userId = user?.id;
+    if (userId == null || userId.isEmpty) return '/onboarding';
+
+    final setup = await _onboardingService.loadSetupForUser(userId);
+    if (setup != null) {
+      return '/agenda';
+    }
+    return '/onboarding';
   }
 
   @override

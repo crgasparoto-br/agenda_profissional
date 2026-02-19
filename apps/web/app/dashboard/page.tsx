@@ -316,7 +316,7 @@ export default function DashboardPage() {
   const [slotMinutesByProfessional, setSlotMinutesByProfessional] = useState<Record<string, number>>({});
   const [activeProfessionalIds, setActiveProfessionalIds] = useState<string[]>([]);
   const [status, setStatus] = useState<string | null>(null);
-  const [selectedStatus, setSelectedStatus] = useState<string>("");
+  const [selectedStatus, setSelectedStatus] = useState<string>("scheduled");
   const [professionals, setProfessionals] = useState<ProfessionalOption[]>([]);
   const [selectedProfessionalId, setSelectedProfessionalId] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
