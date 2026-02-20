@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { formatPhone } from "@/lib/phone";
 
 type ChannelRow = {
   id: string;
@@ -290,7 +291,7 @@ export default function WhatsappSettingsPage() {
               {channels.map((item) => (
                 <tr key={item.id}>
                   <td>{item.label}</td>
-                  <td>{item.whatsapp_number}</td>
+                  <td>{formatPhone(item.whatsapp_number) || item.whatsapp_number || "-"}</td>
                   <td>{item.phone_number_id}</td>
                   <td>{item.professionals?.name ?? "Geral"}</td>
                   <td>{item.active ? "Ativo" : "Inativo"}</td>

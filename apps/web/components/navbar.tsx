@@ -131,6 +131,7 @@ export function Navbar() {
         ) : (
           <>
             <Link href="/dashboard">Agenda</Link>
+            <Link href="/auditoria-pontualidade">Auditoria de Pontualidade</Link>
             {showPjRegistrationsMenu ? (
               <details className="side-nav-menu">
                 <summary className="side-nav-menu-summary">

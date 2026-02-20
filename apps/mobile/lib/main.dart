@@ -8,8 +8,10 @@ import 'package:mobile/screens/clients_screen.dart';
 import 'package:mobile/screens/create_appointment_screen.dart';
 import 'package:mobile/screens/login_screen.dart';
 import 'package:mobile/screens/onboarding_screen.dart';
+import 'package:mobile/screens/punctuality_audit_screen.dart';
 import 'package:mobile/screens/professional_menu_screen.dart';
 import 'package:mobile/screens/professionals_screen.dart';
+import 'package:mobile/screens/push_settings_screen.dart';
 import 'package:mobile/screens/schedules_screen.dart';
 import 'package:mobile/screens/services_screen.dart';
 import 'package:mobile/screens/whatsapp_settings_screen.dart';
@@ -41,6 +43,7 @@ class AgendaProfissionalApp extends StatelessWidget {
         '/onboarding': (_) => const OnboardingScreen(),
         '/menu': (_) => const ProfessionalMenuScreen(),
         '/agenda': (_) => const AgendaScreen(),
+        '/auditoria-pontualidade': (_) => const PunctualityAuditScreen(),
         '/client-area': (_) => const ClientAreaScreen(),
         '/appointments/new': (_) => const CreateAppointmentScreen(),
         '/clients': (_) => const ClientsScreen(),
@@ -48,6 +51,7 @@ class AgendaProfissionalApp extends StatelessWidget {
         '/professionals': (_) => const ProfessionalsScreen(),
         '/schedules': (_) => const SchedulesScreen(),
         '/whatsapp': (_) => const WhatsappSettingsScreen(),
+        '/push': (_) => const PushSettingsScreen(),
       },
     );
   }

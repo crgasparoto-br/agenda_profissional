@@ -55,6 +55,21 @@ type UnavailabilityDraft = {
   shareReasonWithClient: boolean;
 };
 
+type DelayPolicyRow = {
+  professional_id: string | null;
+  tempo_maximo_atraso_min: number;
+  janela_aviso_antes_consulta_min: number;
+  monitor_interval_min: number;
+  fallback_whatsapp_for_professional: boolean;
+};
+
+type DelayPolicyDraft = {
+  tempoMaximoAtrasoMin: number;
+  janelaAvisoAntesConsultaMin: number;
+  monitorIntervalMin: number;
+  fallbackWhatsappForProfessional: boolean;
+};
+
 const WEEK_DAYS = [
   { id: 0, label: "Dom" },
   { id: 1, label: "Seg" },
@@ -175,6 +190,15 @@ function createDefaultUnavailabilityDraft(): UnavailabilityDraft {
     endsAt: end,
     reason: "",
     shareReasonWithClient: false
+  };
+}
+
+function createDefaultDelayPolicyDraft(): DelayPolicyDraft {
+  return {
+    tempoMaximoAtrasoMin: 10,
+    janelaAvisoAntesConsultaMin: 90,
+    monitorIntervalMin: 5,
+    fallbackWhatsappForProfessional: false
   };
 }
 
@@ -304,6 +328,7 @@ export default function SchedulesPage() {
   const [unavailabilityByProfessional, setUnavailabilityByProfessional] = useState<Record<string, UnavailabilityRow[]>>({});
   const [unavailabilityDrafts, setUnavailabilityDrafts] = useState<Record<string, UnavailabilityDraft>>({});
   const [showOnlyShareableByProfessional, setShowOnlyShareableByProfessional] = useState<Record<string, boolean>>({});
+  const [delayPolicyDrafts, setDelayPolicyDrafts] = useState<Record<string, DelayPolicyDraft>>({});
   const [tenantId, setTenantId] = useState<string | null>(null);
   const [editingProfessionalId, setEditingProfessionalId] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -312,13 +337,20 @@ export default function SchedulesPage() {
   async function load() {
     const supabase = getSupabaseBrowserClient();
     const unavailabilityTable = (supabase as any).from("professional_unavailability");
-    const [{ data: professionalsData, error: professionalsError }, { data: schedulesData, error: schedulesError }] =
-      await Promise.all([
-        supabase.from("professionals").select("id, name, active").order("name"),
-        supabase
-          .from("professional_schedule_settings")
-          .select("professional_id, timezone, workdays, work_hours")
-      ]);
+    const delayPoliciesTable = (supabase as any).from("delay_policies");
+    const [
+      { data: professionalsData, error: professionalsError },
+      { data: schedulesData, error: schedulesError },
+      { data: delayPoliciesData, error: delayPoliciesError }
+    ] = await Promise.all([
+      supabase.from("professionals").select("id, name, active").order("name"),
+      supabase
+        .from("professional_schedule_settings")
+        .select("professional_id, timezone, workdays, work_hours"),
+      delayPoliciesTable.select(
+        "professional_id, tempo_maximo_atraso_min, janela_aviso_antes_consulta_min, monitor_interval_min, fallback_whatsapp_for_professional"
+      )
+    ]);
     const { data: unavailabilityData, error: unavailabilityError } = await unavailabilityTable
       .select("id, professional_id, starts_at, ends_at, reason, share_reason_with_client")
       .order("starts_at", { ascending: true });
@@ -336,14 +368,27 @@ export default function SchedulesPage() {
       setError(unavailabilityError.message);
       return;
     }
+    if (delayPoliciesError) {
+      setError(delayPoliciesError.message);
+      return;
+    }
 
     const professionalsRows = (professionalsData ?? []) as ProfessionalRow[];
     const schedulesRows = (schedulesData ?? []) as ScheduleRow[];
+    const delayPoliciesRows = (delayPoliciesData ?? []) as DelayPolicyRow[];
     const scheduleByProfessional = new Map<string, ScheduleRow>(
       schedulesRows.map((item) => [item.professional_id, item])
     );
+    const defaultTenantPolicy =
+      delayPoliciesRows.find((item) => item.professional_id === null) ?? null;
+    const policyByProfessional = new Map<string, DelayPolicyRow>(
+      delayPoliciesRows
+        .filter((item) => item.professional_id !== null)
+        .map((item) => [item.professional_id as string, item])
+    );
 
     const nextDrafts: Record<string, ScheduleDraft> = {};
+    const nextDelayPolicyDrafts: Record<string, DelayPolicyDraft> = {};
     const nextUnavailabilityDrafts: Record<string, UnavailabilityDraft> = {};
     for (const professional of professionalsRows) {
       const schedule = scheduleByProfessional.get(professional.id);
@@ -354,6 +399,34 @@ export default function SchedulesPage() {
           defaultRule: createDefaultRule(),
           dailyOverrides: {}
         };
+      }
+
+      const policy = policyByProfessional.get(professional.id);
+      const fallback = defaultTenantPolicy;
+      nextDelayPolicyDrafts[professional.id] = {
+        tempoMaximoAtrasoMin: Number(
+          policy?.tempo_maximo_atraso_min ??
+            fallback?.tempo_maximo_atraso_min ??
+            createDefaultDelayPolicyDraft().tempoMaximoAtrasoMin
+        ),
+        janelaAvisoAntesConsultaMin: Number(
+          policy?.janela_aviso_antes_consulta_min ??
+            fallback?.janela_aviso_antes_consulta_min ??
+            createDefaultDelayPolicyDraft().janelaAvisoAntesConsultaMin
+        ),
+        monitorIntervalMin: Number(
+          policy?.monitor_interval_min ??
+            fallback?.monitor_interval_min ??
+            createDefaultDelayPolicyDraft().monitorIntervalMin
+        ),
+        fallbackWhatsappForProfessional: Boolean(
+          policy?.fallback_whatsapp_for_professional ??
+            fallback?.fallback_whatsapp_for_professional ??
+            createDefaultDelayPolicyDraft().fallbackWhatsappForProfessional
+        )
+      };
+
+      if (!schedule) {
         continue;
       }
 
@@ -383,6 +456,7 @@ export default function SchedulesPage() {
 
     setProfessionals(professionalsRows);
     setDrafts(nextDrafts);
+    setDelayPolicyDrafts(nextDelayPolicyDrafts);
     setUnavailabilityByProfessional(nextUnavailabilityByProfessional);
     setUnavailabilityDrafts(nextUnavailabilityDrafts);
   }
@@ -514,6 +588,16 @@ export default function SchedulesPage() {
     }));
   }
 
+  function updateDelayPolicyDraft(professionalId: string, patch: Partial<DelayPolicyDraft>) {
+    setDelayPolicyDrafts((prev) => ({
+      ...prev,
+      [professionalId]: {
+        ...(prev[professionalId] ?? createDefaultDelayPolicyDraft()),
+        ...patch
+      }
+    }));
+  }
+
   function startEditingUnavailability(professionalId: string, row: UnavailabilityRow) {
     const timezone = drafts[professionalId]?.timezone || "America/Sao_Paulo";
     updateUnavailabilityDraft(professionalId, {
@@ -635,6 +719,7 @@ export default function SchedulesPage() {
     setStatus(null);
 
     const draft = drafts[professionalId];
+    const delayPolicy = delayPolicyDrafts[professionalId] ?? createDefaultDelayPolicyDraft();
     if (!draft || !tenantId) return false;
     if (draft.workdays.length === 0) {
       setError("Selecione ao menos um dia da semana.");
@@ -655,6 +740,22 @@ export default function SchedulesPage() {
         setError(overrideError);
         return false;
       }
+    }
+
+    if (delayPolicy.tempoMaximoAtrasoMin < 0 || delayPolicy.tempoMaximoAtrasoMin > 180) {
+      setError("Atraso máximo deve estar entre 0 e 180 minutos.");
+      return false;
+    }
+    if (
+      delayPolicy.janelaAvisoAntesConsultaMin < 5 ||
+      delayPolicy.janelaAvisoAntesConsultaMin > 1440
+    ) {
+      setError("Janela de aviso deve estar entre 5 e 1440 minutos.");
+      return false;
+    }
+    if (delayPolicy.monitorIntervalMin < 1 || delayPolicy.monitorIntervalMin > 60) {
+      setError("Intervalo de monitoramento deve estar entre 1 e 60 minutos.");
+      return false;
     }
 
     const serializedOverrides = Object.entries(draft.dailyOverrides).reduce<Record<string, Json>>((acc, [key, value]) => {
@@ -708,7 +809,24 @@ export default function SchedulesPage() {
       return false;
     }
 
-    setStatus("Horário salvo com sucesso.");
+    const delayPoliciesTable = (supabase as any).from("delay_policies");
+    const { error: delayPolicyError } = await delayPoliciesTable.upsert(
+      {
+        tenant_id: tenantId,
+        professional_id: professionalId,
+        tempo_maximo_atraso_min: delayPolicy.tempoMaximoAtrasoMin,
+        janela_aviso_antes_consulta_min: delayPolicy.janelaAvisoAntesConsultaMin,
+        monitor_interval_min: delayPolicy.monitorIntervalMin,
+        fallback_whatsapp_for_professional: delayPolicy.fallbackWhatsappForProfessional
+      },
+      { onConflict: "tenant_id,professional_id" }
+    );
+    if (delayPolicyError) {
+      setError(delayPolicyError.message);
+      return false;
+    }
+
+    setStatus("Horário e política de atraso salvos com sucesso.");
     await load();
     return true;
   }
@@ -740,6 +858,7 @@ export default function SchedulesPage() {
       {professionals.map((professional) => {
         const draft = drafts[professional.id];
         if (!draft) return null;
+        const delayPolicyDraft = delayPolicyDrafts[professional.id] ?? createDefaultDelayPolicyDraft();
         const isEditing = editingProfessionalId === professional.id;
         const unavailabilityItems = unavailabilityByProfessional[professional.id] ?? [];
         const showOnlyShareable = showOnlyShareableByProfessional[professional.id] ?? false;
@@ -789,7 +908,77 @@ export default function SchedulesPage() {
               </label>
             </div>
 
-            <Accordion type="single" collapsible>
+            <Accordion type="multiple" className="col">
+              <AccordionItem value={`delay-policy-${professional.id}`}>
+                <AccordionTrigger>Política de atraso</AccordionTrigger>
+                <AccordionContent>
+                  <div className="card col">
+                    <div className="row align-center">
+                      <label className="inline-field">
+                        <span>Atraso máximo (min)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          max={180}
+                          value={delayPolicyDraft.tempoMaximoAtrasoMin}
+                          onChange={(e) =>
+                            updateDelayPolicyDraft(professional.id, {
+                              tempoMaximoAtrasoMin: Number(e.target.value)
+                            })
+                          }
+                          disabled={!isEditing}
+                        />
+                      </label>
+
+                      <label className="inline-field">
+                        <span>Janela de aviso (min)</span>
+                        <input
+                          type="number"
+                          min={5}
+                          max={1440}
+                          value={delayPolicyDraft.janelaAvisoAntesConsultaMin}
+                          onChange={(e) =>
+                            updateDelayPolicyDraft(professional.id, {
+                              janelaAvisoAntesConsultaMin: Number(e.target.value)
+                            })
+                          }
+                          disabled={!isEditing}
+                        />
+                      </label>
+
+                      <label className="inline-field">
+                        <span>Intervalo monitor (min)</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={60}
+                          value={delayPolicyDraft.monitorIntervalMin}
+                          onChange={(e) =>
+                            updateDelayPolicyDraft(professional.id, {
+                              monitorIntervalMin: Number(e.target.value)
+                            })
+                          }
+                          disabled={!isEditing}
+                        />
+                      </label>
+                    </div>
+                    <label className="checkbox-row whatsapp-toggle-row">
+                      <input
+                        type="checkbox"
+                        checked={delayPolicyDraft.fallbackWhatsappForProfessional}
+                        onChange={(e) =>
+                          updateDelayPolicyDraft(professional.id, {
+                            fallbackWhatsappForProfessional: e.target.checked
+                          })
+                        }
+                        disabled={!isEditing}
+                      />
+                      Ativar envio alternativo de alerta para WhatsApp do profissional
+                    </label>
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+
               <AccordionItem value={`details-${professional.id}`}>
                 <AccordionTrigger>Dias e regras de atendimento</AccordionTrigger>
                 <AccordionContent>

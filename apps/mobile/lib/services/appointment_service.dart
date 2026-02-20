@@ -38,7 +38,7 @@ class AppointmentService {
     var query = _client
         .from('appointments')
         .select(
-            'id, tenant_id, client_id, service_id, specialty_id, professional_id, source, starts_at, ends_at, status, cancellation_reason, professionals(name), services(name, duration_min, interval_min), clients(full_name)')
+            'id, tenant_id, client_id, service_id, specialty_id, professional_id, source, starts_at, ends_at, status, cancellation_reason, punctuality_status, punctuality_eta_min, punctuality_predicted_delay_min, professionals(name), services(name, duration_min, interval_min), clients(full_name)')
         .gte('starts_at', start.toUtc().toIso8601String())
         .lt('starts_at', end.toUtc().toIso8601String());
     if (professionalId != null && professionalId.isNotEmpty) {
@@ -228,5 +228,168 @@ class AppointmentService {
       status: 'rescheduled',
       cancellationReason: 'Remarcado manualmente para $newId',
     );
+  }
+
+  Future<void> sendPunctualitySnapshot({
+    required String appointmentId,
+    int? etaMinutes,
+    double? clientLat,
+    double? clientLng,
+    String source = 'mobile_app',
+  }) async {
+    final response = await _client.functions.invoke(
+      'punctuality-monitor',
+      body: {
+        'appointment_id': appointmentId,
+        'source': source,
+        'snapshots': [
+          {
+            'appointment_id': appointmentId,
+            'eta_minutes': etaMinutes,
+            'captured_at': DateTime.now().toUtc().toIso8601String(),
+            'client_lat': clientLat,
+            'client_lng': clientLng,
+            'provider': 'mobile_manual',
+          }
+        ],
+      },
+    );
+
+    ensureExpectedStatus(
+      actualStatus: response.status,
+      expectedStatus: 200,
+      operation: 'punctuality-monitor',
+      responseData: response.data,
+    );
+  }
+
+  Future<List<PunctualityAlertItem>> getPunctualityAlerts({
+    List<String>? appointmentIds,
+    int limit = 15,
+    bool includeRead = true,
+  }) async {
+    var query = _client
+        .from('notification_log')
+        .select('id, appointment_id, type, status, payload, created_at')
+        .eq('channel', 'in_app')
+        .inFilter('type', const [
+      'punctuality_on_time',
+      'punctuality_late_ok',
+      'punctuality_late_critical',
+    ]);
+
+    if (appointmentIds != null && appointmentIds.isNotEmpty) {
+      query = query.inFilter('appointment_id', appointmentIds);
+    }
+    if (!includeRead) {
+      query = query.inFilter('status', const ['queued', 'sent']);
+    }
+
+    final response =
+        await query.order('created_at', ascending: false).limit(limit);
+
+    return List<Map<String, dynamic>>.from(response)
+        .map(PunctualityAlertItem.fromJson)
+        .toList();
+  }
+
+  Future<void> markPunctualityAlertsDelivered(List<String> alertIds) async {
+    if (alertIds.isEmpty) return;
+    await _client
+        .from('notification_log')
+        .update({'status': 'sent'})
+        .inFilter('id', alertIds)
+        .eq('status', 'queued');
+  }
+
+  Future<void> markPunctualityAlertRead(String alertId) async {
+    await _client
+        .from('notification_log')
+        .update({'status': 'read'}).eq('id', alertId);
+  }
+
+  Future<void> markPunctualityAlertsRead(List<String> alertIds) async {
+    if (alertIds.isEmpty) return;
+    await _client
+        .from('notification_log')
+        .update({'status': 'read'}).inFilter('id', alertIds);
+  }
+
+  Future<Map<String, ClientLocationConsentItem>> getLocationConsents(
+      List<String> appointmentIds) async {
+    if (appointmentIds.isEmpty) return {};
+
+    final response = await _client
+        .from('client_location_consents')
+        .select(
+            'id, appointment_id, consent_status, consent_text_version, source_channel, granted_at, expires_at, created_at, updated_at')
+        .inFilter('appointment_id', appointmentIds)
+        .order('updated_at', ascending: false);
+
+    final map = <String, ClientLocationConsentItem>{};
+    for (final row in List<Map<String, dynamic>>.from(response)) {
+      final item = ClientLocationConsentItem.fromJson(row);
+      map.putIfAbsent(item.appointmentId, () => item);
+    }
+    return map;
+  }
+
+  Future<void> registerLocationConsent({
+    required AppointmentItem appointment,
+    required String consentStatus,
+    required String consentTextVersion,
+    DateTime? expiresAt,
+    String sourceChannel = 'app_agenda_profissional',
+  }) async {
+    if (appointment.clientId == null || appointment.clientId!.isEmpty) {
+      throw const AppException(
+        message:
+            'Agendamento sem cliente vinculado para registrar consentimento.',
+        code: 'appointment_without_client',
+      );
+    }
+
+    final status = consentStatus.trim().toLowerCase();
+    if (!{'granted', 'denied', 'revoked', 'expired'}.contains(status)) {
+      throw const AppException(
+        message: 'Status de consentimento inválido.',
+        code: 'invalid_consent_status',
+      );
+    }
+
+    final nowIso = DateTime.now().toUtc().toIso8601String();
+    final payload = <String, dynamic>{
+      'tenant_id': appointment.tenantId,
+      'client_id': appointment.clientId,
+      'appointment_id': appointment.id,
+      'consent_status': status,
+      'consent_text_version':
+          consentTextVersion.trim().isEmpty ? 'v1' : consentTextVersion.trim(),
+      'source_channel': sourceChannel,
+      'granted_at': status == 'granted' ? nowIso : null,
+      'expires_at': status == 'granted'
+          ? expiresAt?.toUtc().toIso8601String()
+          : status == 'revoked'
+              ? nowIso
+              : null,
+    };
+
+    final existing = await _client
+        .from('client_location_consents')
+        .select('id')
+        .eq('appointment_id', appointment.id)
+        .order('updated_at', ascending: false)
+        .limit(1)
+        .maybeSingle();
+
+    if (existing != null && existing['id'] is String) {
+      await _client
+          .from('client_location_consents')
+          .update(payload)
+          .eq('id', existing['id'] as String);
+      return;
+    }
+
+    await _client.from('client_location_consents').insert(payload);
   }
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { CalendarClock, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronUp, UserX, XCircle } from "lucide-react";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { Button } from "@/components/ui/button";
 
@@ -17,9 +18,18 @@ type DashboardAppointment = {
   ends_at: string;
   status: string;
   cancellation_reason: string | null;
+  punctuality_status: "no_data" | "on_time" | "late_ok" | "late_critical" | null;
+  punctuality_eta_min: number | null;
+  punctuality_predicted_delay_min: number | null;
   clients: { full_name: string | null } | null;
   services: { name: string | null; duration_min: number | null } | null;
   professionals: { name: string | null } | null;
+};
+type ClientLocationConsentRow = {
+  appointment_id: string;
+  consent_status: "granted" | "denied" | "revoked" | "expired";
+  expires_at: string | null;
+  updated_at: string;
 };
 
 type ProfileRow = {
@@ -49,6 +59,14 @@ type UnavailabilityRow = {
 type ProfessionalServiceRow = {
   professional_id: string;
   services: { duration_min: number | null } | null;
+};
+type PunctualityAlert = {
+  id: string;
+  appointment_id: string;
+  type: "punctuality_on_time" | "punctuality_late_ok" | "punctuality_late_critical";
+  status: "queued" | "sent" | "failed" | "read";
+  created_at: string;
+  payload: Record<string, unknown> | null;
 };
 
 const CALENDAR_SLOT_MINUTES = 30;
@@ -89,6 +107,82 @@ function statusMeta(status: string) {
   }
 
   return { label: status, className: "status-pill status-pending" };
+}
+
+function punctualityMeta(status: DashboardAppointment["punctuality_status"]) {
+  const value = (status ?? "no_data").toLowerCase();
+
+  if (value === "on_time") {
+    return { label: "No horário", className: "status-pill punctuality-on-time" };
+  }
+  if (value === "late_ok") {
+    return { label: "Atraso leve", className: "status-pill punctuality-late-ok" };
+  }
+  if (value === "late_critical") {
+    return { label: "Atraso crítico", className: "status-pill punctuality-late-critical" };
+  }
+
+  return { label: "Sem dados", className: "status-pill punctuality-no-data" };
+}
+
+function punctualityDetail(item: DashboardAppointment) {
+  const eta = item.punctuality_eta_min;
+  const delay = item.punctuality_predicted_delay_min;
+  if (typeof eta === "number" && typeof delay === "number") {
+    return `ETA ${eta} min • atraso previsto ${delay} min`;
+  }
+  if (typeof eta === "number") return `ETA ${eta} min`;
+  if (typeof delay === "number") return `Atraso previsto ${delay} min`;
+  return "Sem dados de deslocamento";
+}
+
+function consentMeta(consent: ClientLocationConsentRow | null | undefined) {
+  if (!consent) {
+    return {
+      label: "Sem consentimento",
+      detail: "Cliente não autorizou localização",
+      className: "status-pill punctuality-no-data"
+    };
+  }
+
+  if (consent.consent_status === "granted") {
+    const expiry = consent.expires_at ? new Date(consent.expires_at) : null;
+    const active = !expiry || expiry.getTime() > Date.now();
+    if (active) {
+      return {
+        label: "Consentimento ativo",
+        detail: expiry ? `Válido até ${formatDateTime(expiry.toISOString())}` : "Sem expiração",
+        className: "status-pill punctuality-on-time"
+      };
+    }
+    return {
+      label: "Consentimento expirado",
+      detail: "Renovar autorização de localização",
+      className: "status-pill punctuality-late-ok"
+    };
+  }
+
+  if (consent.consent_status === "denied") {
+    return {
+      label: "Consentimento negado",
+      detail: "Monitoramento bloqueado",
+      className: "status-pill punctuality-late-critical"
+    };
+  }
+
+  if (consent.consent_status === "revoked") {
+    return {
+      label: "Consentimento revogado",
+      detail: "Monitoramento bloqueado",
+      className: "status-pill punctuality-late-ok"
+    };
+  }
+
+  return {
+    label: "Consentimento expirado",
+    detail: "Renovar autorização de localização",
+    className: "status-pill punctuality-late-ok"
+  };
 }
 
 function formatTimeLocal(isoValue: string) {
@@ -311,6 +405,7 @@ function isWithinSchedule(
 
 export default function DashboardPage() {
   const [appointments, setAppointments] = useState<DashboardAppointment[]>([]);
+  const [consentByAppointment, setConsentByAppointment] = useState<Record<string, ClientLocationConsentRow>>({});
   const [timezoneByProfessional, setTimezoneByProfessional] = useState<Record<string, string>>({});
   const [scheduleByProfessional, setScheduleByProfessional] = useState<Record<string, ScheduleSettingsRow>>({});
   const [slotMinutesByProfessional, setSlotMinutesByProfessional] = useState<Record<string, number>>({});
@@ -331,6 +426,9 @@ export default function DashboardPage() {
   const [editStartsAt, setEditStartsAt] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [punctualityAlerts, setPunctualityAlerts] = useState<PunctualityAlert[]>([]);
+  const [alertsLoading, setAlertsLoading] = useState(false);
+  const [alertsAccordionOpen, setAlertsAccordionOpen] = useState(true);
 
   const todayRange = useMemo(() => {
     const anchor = new Date(`${selectedDate}T00:00:00`);
@@ -474,6 +572,78 @@ export default function DashboardPage() {
     if (!selectedStatus) return appointments;
     return appointments.filter((item) => item.status.toLowerCase() === selectedStatus);
   }, [appointments, selectedStatus]);
+  const unreadAlertsCount = useMemo(
+    () => punctualityAlerts.filter((item) => item.status !== "read").length,
+    [punctualityAlerts]
+  );
+
+  function alertTypeLabel(type: PunctualityAlert["type"]) {
+    if (type === "punctuality_on_time") return "Cliente no horário";
+    if (type === "punctuality_late_ok") return "Cliente com atraso leve";
+    return "Atraso crítico";
+  }
+
+  function alertSummary(alert: PunctualityAlert) {
+    const eta = typeof alert.payload?.eta_minutes === "number" ? alert.payload.eta_minutes : null;
+    const delay =
+      typeof alert.payload?.predicted_arrival_delay === "number" ? alert.payload.predicted_arrival_delay : null;
+    if (typeof eta === "number" && typeof delay === "number") {
+      return `ETA ${eta} min • atraso previsto ${delay} min`;
+    }
+    if (typeof eta === "number") return `ETA ${eta} min`;
+    if (typeof delay === "number") return `Atraso previsto ${delay} min`;
+    return "Sem dados adicionais";
+  }
+
+  function formatAlertDateTime(isoValue: string) {
+    const dt = new Date(isoValue);
+    if (Number.isNaN(dt.getTime())) return "--/-- --:--";
+    return new Intl.DateTimeFormat("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false
+    }).format(dt);
+  }
+
+
+  async function markAlertAsRead(alertId: string) {
+    setAlertsLoading(true);
+    const supabase = getSupabaseBrowserClient();
+    const { error: updateError } = await supabase
+      .from("notification_log")
+      .update({ status: "read" })
+      .eq("id", alertId);
+    setAlertsLoading(false);
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+    setPunctualityAlerts((prev) =>
+      prev.map((item) => (item.id === alertId ? { ...item, status: "read" } : item))
+    );
+  }
+
+  async function markAllAlertsAsRead() {
+    const unreadIds = punctualityAlerts
+      .filter((item) => item.status !== "read")
+      .map((item) => item.id);
+    if (unreadIds.length === 0) return;
+    setAlertsLoading(true);
+    const supabase = getSupabaseBrowserClient();
+    const { error: updateError } = await supabase
+      .from("notification_log")
+      .update({ status: "read" })
+      .in("id", unreadIds);
+    setAlertsLoading(false);
+    if (updateError) {
+      setError(updateError.message);
+      return;
+    }
+    setPunctualityAlerts((prev) => prev.map((item) => ({ ...item, status: "read" })));
+  }
+
 
   function shiftDate(days: number) {
     const base = new Date(`${selectedDate}T00:00:00`);
@@ -524,7 +694,7 @@ export default function DashboardPage() {
       let appointmentQuery = supabase
         .from("appointments")
         .select(
-          "id, tenant_id, client_id, service_id, specialty_id, professional_id, source, starts_at, ends_at, status, cancellation_reason, clients(full_name), services(name, duration_min), professionals(name)"
+          "id, tenant_id, client_id, service_id, specialty_id, professional_id, source, starts_at, ends_at, status, cancellation_reason, punctuality_status, punctuality_eta_min, punctuality_predicted_delay_min, clients(full_name), services(name, duration_min), professionals(name)"
         )
         .gte("starts_at", todayRange.start)
         .lt("starts_at", todayRange.end)
@@ -546,6 +716,43 @@ export default function DashboardPage() {
 
       const rows = (data ?? []) as DashboardAppointment[];
       setAppointments(rows);
+      const appointmentIds = rows.map((item) => item.id);
+
+      if (appointmentIds.length > 0) {
+        const { data: consentRowsData } = await supabase
+          .from("client_location_consents")
+          .select("appointment_id, consent_status, expires_at, updated_at")
+          .in("appointment_id", appointmentIds)
+          .order("updated_at", { ascending: false });
+        const nextConsentByAppointment: Record<string, ClientLocationConsentRow> = {};
+        for (const row of (consentRowsData ?? []) as ClientLocationConsentRow[]) {
+          if (!nextConsentByAppointment[row.appointment_id]) {
+            nextConsentByAppointment[row.appointment_id] = row;
+          }
+        }
+        setConsentByAppointment(nextConsentByAppointment);
+
+        const { data: alertsData } = await supabase
+          .from("notification_log")
+          .select("id, appointment_id, type, status, payload, created_at")
+          .eq("channel", "in_app")
+          .in("type", ["punctuality_on_time", "punctuality_late_ok", "punctuality_late_critical"])
+          .in("appointment_id", appointmentIds)
+          .order("created_at", { ascending: false })
+          .limit(8);
+
+        const parsedAlerts = (alertsData ?? []) as PunctualityAlert[];
+        const queuedIds = parsedAlerts.filter((item) => item.status === "queued").map((item) => item.id);
+        if (queuedIds.length > 0) {
+          await supabase.from("notification_log").update({ status: "sent" }).in("id", queuedIds).eq("status", "queued");
+        }
+        setPunctualityAlerts(
+          parsedAlerts.map((item) => (item.status === "queued" ? { ...item, status: "sent" } : item))
+        );
+      } else {
+        setConsentByAppointment({});
+        setPunctualityAlerts([]);
+      }
 
       const { data: professionalsData } = await supabase.from("professionals").select("id, name").eq("active", true).order("name");
       const professionalRows = (professionalsData ?? []) as ProfessionalOption[];
@@ -800,7 +1007,12 @@ export default function DashboardPage() {
   return (
     <section className="page-stack">
       <div className="card row align-center justify-between page-title-row">
-        <h1>Agenda</h1>
+        <div className="row align-center">
+          <h1>Agenda</h1>
+          <span className={`alerts-counter${unreadAlertsCount > 0 ? " alerts-counter-unread" : ""}`}>
+            Alertas não lidos: {unreadAlertsCount}
+          </span>
+        </div>
         <Link href="/appointments/new">Novo agendamento</Link>
       </div>
 
@@ -897,6 +1109,55 @@ export default function DashboardPage() {
 
       {error ? <div className="error">{error}</div> : null}
       {status ? <div className="notice">{status}</div> : null}
+      {punctualityAlerts.length > 0 ? (
+        <div className="card">
+          <div className="row align-center justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setAlertsAccordionOpen((value) => !value)}
+              aria-expanded={alertsAccordionOpen}
+            >
+              {alertsAccordionOpen ? <ChevronUp size={16} aria-hidden="true" /> : <ChevronDown size={16} aria-hidden="true" />}
+              Alertas de pontualidade ({punctualityAlerts.length})
+            </Button>
+            {alertsAccordionOpen ? (
+              <Button type="button" variant="outline" onClick={markAllAlertsAsRead} disabled={alertsLoading}>
+                <CheckCheck size={16} aria-hidden="true" />
+                Marcar todos como lidos
+              </Button>
+            ) : null}
+          </div>
+          {alertsAccordionOpen ? (
+            <div className="col">
+              {punctualityAlerts.map((alert) => {
+                const appointment = appointments.find((item) => item.id === alert.appointment_id);
+                return (
+                  <div className={`alert-item${alert.status !== "read" ? " alert-item-unread" : ""}`} key={alert.id}>
+                    <div className="row align-center justify-between">
+                      <strong>{alertTypeLabel(alert.type)}</strong>
+                      <span className={`status-pill ${alert.status === "read" ? "status-pending" : "punctuality-late-ok"}`}>
+                        {alert.status === "read" ? "Lido" : "Não lido"}
+                      </span>
+                    </div>
+                    <div>{appointment ? `${appointment.clients?.full_name ?? "Sem cliente"} • ${appointment.services?.name ?? "-"}` : `Consulta ${alert.appointment_id.slice(0, 8)}`}</div>
+                    <small className="text-muted">{alertSummary(alert)}</small>
+                    <div className="row align-center justify-between">
+                      <small className="text-muted">{formatAlertDateTime(alert.created_at)}</small>
+                      {alert.status !== "read" ? (
+                        <Button type="button" variant="outline" onClick={() => markAlertAsRead(alert.id)} disabled={alertsLoading}>
+                          <Check size={16} aria-hidden="true" />
+                          Marcar como lido
+                        </Button>
+                      ) : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {viewMode === "day" ? (
         <div className="card">
@@ -909,12 +1170,16 @@ export default function DashboardPage() {
                 <th>Serviço</th>
                 <th>Profissional</th>
                 <th>Status</th>
+                <th>Pontualidade</th>
+                <th>Consentimento</th>
                 <th>Ação</th>
               </tr>
             </thead>
             <tbody>
               {filteredAppointments.map((item) => {
                 const meta = statusMeta(item.status);
+                const punctuality = punctualityMeta(item.punctuality_status);
+                const consent = consentMeta(consentByAppointment[item.id] ?? null);
                 const timezone = timezoneByProfessional[item.professional_id] ?? "America/Sao_Paulo";
 
                 return (
@@ -931,6 +1196,18 @@ export default function DashboardPage() {
                       <span className={meta.className}>{meta.label}</span>
                     </td>
                     <td>
+                      <div className="col">
+                        <span className={punctuality.className}>{punctuality.label}</span>
+                        <small className="text-muted">{punctualityDetail(item)}</small>
+                      </div>
+                    </td>
+                    <td>
+                      <div className="col">
+                        <span className={consent.className}>{consent.label}</span>
+                        <small className="text-muted">{consent.detail}</small>
+                      </div>
+                    </td>
+                    <td>
                       {editingAppointmentId === item.id ? (
                         <div className="col">
                           <input
@@ -944,6 +1221,7 @@ export default function DashboardPage() {
                               onClick={() => handleRescheduleAppointment(item)}
                               disabled={actionLoading || !editStartsAt}
                             >
+                              <CalendarClock size={16} aria-hidden="true" />
                               Remarcar
                             </Button>
                             <Button
@@ -955,6 +1233,7 @@ export default function DashboardPage() {
                               }}
                               disabled={actionLoading}
                             >
+                              <XCircle size={16} aria-hidden="true" />
                               Cancelar
                             </Button>
                           </div>
@@ -970,6 +1249,7 @@ export default function DashboardPage() {
                             }}
                             disabled={actionLoading}
                           >
+                            <CalendarClock size={16} aria-hidden="true" />
                             Remarcar
                           </Button>
                           <Button
@@ -978,6 +1258,7 @@ export default function DashboardPage() {
                             onClick={() => handleCancelAppointment(item.id)}
                             disabled={actionLoading}
                           >
+                            <XCircle size={16} aria-hidden="true" />
                             Cancelar
                           </Button>
                           <Button
@@ -986,6 +1267,7 @@ export default function DashboardPage() {
                             onClick={() => handleCompleteAppointment(item.id)}
                             disabled={actionLoading || ["done", "cancelled", "rescheduled", "no_show"].includes(item.status.toLowerCase())}
                           >
+                            <CheckCircle2 size={16} aria-hidden="true" />
                             Concluir
                           </Button>
                           <Button
@@ -994,6 +1276,7 @@ export default function DashboardPage() {
                             onClick={() => handleNoShowAppointment(item.id)}
                             disabled={actionLoading || ["done", "cancelled", "rescheduled", "no_show"].includes(item.status.toLowerCase())}
                           >
+                            <UserX size={16} aria-hidden="true" />
                             Não compareceu
                           </Button>
                         </div>
@@ -1004,7 +1287,7 @@ export default function DashboardPage() {
               })}
               {filteredAppointments.length === 0 ? (
                 <tr>
-                  <td colSpan={6}>Nenhum agendamento para o periodo selecionado.</td>
+                  <td colSpan={7}>Nenhum agendamento para o periodo selecionado.</td>
                 </tr>
               ) : null}
             </tbody>

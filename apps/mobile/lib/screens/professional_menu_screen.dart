@@ -111,9 +111,21 @@ class _ProfessionalMenuScreenState extends State<ProfessionalMenuScreen> {
             child: ListTile(
               leading: const Icon(Icons.calendar_month_outlined),
               title: const Text('Agenda'),
-              subtitle: const Text('Visualize agendamentos por dia, semana ou mês'),
+              subtitle:
+                  const Text('Visualize agendamentos por dia, semana ou mês'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => Navigator.pushNamed(context, '/agenda'),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.manage_search_outlined),
+              title: const Text('Auditoria de Pontualidade'),
+              subtitle: const Text('Metricas e investigacao por agendamento'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () =>
+                  Navigator.pushNamed(context, '/auditoria-pontualidade'),
             ),
           ),
           const SizedBox(height: 8),
@@ -131,8 +143,10 @@ class _ProfessionalMenuScreenState extends State<ProfessionalMenuScreen> {
             child: ExpansionTile(
               leading: const Icon(Icons.folder_open_outlined),
               title: const Text('Cadastros'),
-              trailing: Icon(_cadastrosExpanded ? Icons.expand_less : Icons.chevron_right),
-              onExpansionChanged: (value) => setState(() => _cadastrosExpanded = value),
+              trailing: Icon(
+                  _cadastrosExpanded ? Icons.expand_less : Icons.chevron_right),
+              onExpansionChanged: (value) =>
+                  setState(() => _cadastrosExpanded = value),
               children: [
                 ListTile(
                   leading: const Icon(Icons.group_outlined),
@@ -166,8 +180,10 @@ class _ProfessionalMenuScreenState extends State<ProfessionalMenuScreen> {
             child: ExpansionTile(
               leading: const Icon(Icons.tune_outlined),
               title: const Text('Configurações'),
-              trailing: Icon(_configExpanded ? Icons.expand_less : Icons.chevron_right),
-              onExpansionChanged: (value) => setState(() => _configExpanded = value),
+              trailing: Icon(
+                  _configExpanded ? Icons.expand_less : Icons.chevron_right),
+              onExpansionChanged: (value) =>
+                  setState(() => _configExpanded = value),
               children: [
                 ListTile(
                   leading: const Icon(Icons.settings_outlined),
@@ -180,6 +196,12 @@ class _ProfessionalMenuScreenState extends State<ProfessionalMenuScreen> {
                   title: const Text('WhatsApp + IA'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => Navigator.pushNamed(context, '/whatsapp'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.notifications_active_outlined),
+                  title: const Text('Notificações push'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () => Navigator.pushNamed(context, '/push'),
                 ),
               ],
             ),

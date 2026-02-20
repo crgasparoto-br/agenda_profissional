@@ -15,6 +15,10 @@
   --ap-color-accent: #f4a261;
   --ap-color-danger: #c95f58;
   --ap-color-border: #d7dde4;
+  --ap-punctual-on-time: #1fa4a9;
+  --ap-punctual-late-ok: #f4a261;
+  --ap-punctual-late-critical: #d96c6c;
+  --ap-punctual-no-data: #aab2bd;
   --ap-shadow-soft: 0 10px 24px rgb(31 58 95 / 7%);
   --radius-md: 12px;
   --radius-lg: 16px;
@@ -367,6 +371,24 @@ button.danger {
   text-decoration: none;
 }
 
+.alerts-counter {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid #c9d1da;
+  background: #fff;
+  color: #5c6470;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 4px 10px;
+}
+
+.alerts-counter-unread {
+  border-color: rgb(244 162 97 / 55%);
+  background: rgb(244 162 97 / 16%);
+  color: #8a5427;
+}
+
 .narrow {
   width: min(100%, 480px);
 }
@@ -641,6 +663,30 @@ td {
   border-color: #d8dee5;
 }
 
+.punctuality-on-time {
+  color: #0f666a;
+  background: rgb(31 164 169 / 14%);
+  border-color: rgb(31 164 169 / 40%);
+}
+
+.punctuality-late-ok {
+  color: #8a5427;
+  background: rgb(244 162 97 / 20%);
+  border-color: rgb(244 162 97 / 45%);
+}
+
+.punctuality-late-critical {
+  color: #8a2e2a;
+  background: rgb(217 108 108 / 14%);
+  border-color: rgb(217 108 108 / 36%);
+}
+
+.punctuality-no-data {
+  color: #4b5766;
+  background: #f0f2f5;
+  border-color: #d8dee5;
+}
+
 .date-nav-row {
   display: flex;
   align-items: center;
@@ -732,6 +778,77 @@ td {
 
 .actions-row > * {
   flex: 0 0 auto;
+}
+
+.alert-item {
+  border: 1px solid var(--ap-color-border);
+  border-radius: var(--radius-md);
+  background: #fff;
+  padding: 10px 12px;
+}
+
+.alert-item-unread {
+  border-color: rgb(244 162 97 / 55%);
+  background: rgb(244 162 97 / 8%);
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.metric-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--ap-color-border);
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 12px;
+}
+
+.metric-item strong {
+  color: var(--ap-color-primary);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.metric-item span {
+  color: var(--ap-color-text);
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.investigation-controls {
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin-top: 0.75rem;
+}
+
+.investigation-stack {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.investigation-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.45rem 0.85rem;
+  padding: 0.85rem;
+  background: var(--ap-color-surface);
+  border: 1px solid rgba(31, 58, 95, 0.12);
+  border-radius: 12px;
+}
+
+.investigation-summary strong {
+  color: var(--ap-color-text);
+}
+
+.investigation-summary span {
+  color: rgba(46, 52, 64, 0.85);
+  font-size: 0.9rem;
 }
 
 .checklist-grid {
@@ -899,6 +1016,10 @@ td {
   .calendar-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
+
+  .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
@@ -992,6 +1113,10 @@ td {
   .calendar-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
+  }
+
+  .metrics-grid {
+    grid-template-columns: 1fr;
   }
 
   .checklist-grid {

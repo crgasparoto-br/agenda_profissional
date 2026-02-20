@@ -23,8 +23,49 @@ type TenantRow = {
   logo_url: string | null;
 } | null;
 
+type ServiceLocationRow = {
+  id: string;
+  name: string;
+  address_line: string;
+  city: string;
+  state: string;
+  postal_code: string | null;
+  country: string;
+  latitude: number | null;
+  longitude: number | null;
+  is_active: boolean;
+};
+
+type ServiceLocationDraft = {
+  id: string | null;
+  name: string;
+  addressLine: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+  latitude: string;
+  longitude: string;
+  isActive: boolean;
+};
+
 const MAX_LOGO_SIZE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_LOGO_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/svg+xml"]);
+
+function createDefaultServiceLocationDraft(): ServiceLocationDraft {
+  return {
+    id: null,
+    name: "Endereço principal",
+    addressLine: "",
+    city: "",
+    state: "",
+    postalCode: "",
+    country: "BR",
+    latitude: "",
+    longitude: "",
+    isActive: true
+  };
+}
 
 export default function OnboardingPage() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
@@ -40,6 +81,9 @@ export default function OnboardingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [tenantServiceLocationDraft, setTenantServiceLocationDraft] = useState<ServiceLocationDraft>(
+    createDefaultServiceLocationDraft()
+  );
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,9 +147,122 @@ export default function OnboardingPage() {
         setIsInitialized(true);
       }
 
+      const serviceLocationsTable = (supabase as any).from("service_locations");
+      const { data: locationData } = await serviceLocationsTable
+        .select("id, name, address_line, city, state, postal_code, country, latitude, longitude, is_active")
+        .eq("tenant_id", typedProfile.tenant_id)
+        .is("professional_id", null)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const typedLocation = (locationData ?? null) as ServiceLocationRow | null;
+      setTenantServiceLocationDraft(
+        typedLocation
+          ? {
+              id: typedLocation.id,
+              name: typedLocation.name,
+              addressLine: typedLocation.address_line,
+              city: typedLocation.city,
+              state: typedLocation.state,
+              postalCode: typedLocation.postal_code ?? "",
+              country: typedLocation.country,
+              latitude: typedLocation.latitude?.toString() ?? "",
+              longitude: typedLocation.longitude?.toString() ?? "",
+              isActive: typedLocation.is_active
+            }
+          : createDefaultServiceLocationDraft()
+      );
+
       setLoading(false);
     });
   }, [router]);
+
+  function updateTenantServiceLocationDraft(patch: Partial<ServiceLocationDraft>) {
+    setTenantServiceLocationDraft((prev) => ({
+      ...prev,
+      ...patch
+    }));
+  }
+
+  function parseTenantServiceLocationDraft(): {
+    payload: Record<string, unknown> | null;
+    error: string | null;
+  } {
+    const draft = tenantServiceLocationDraft;
+    const hasAnyData = Boolean(
+      draft.name.trim() ||
+        draft.addressLine.trim() ||
+        draft.city.trim() ||
+        draft.state.trim() ||
+        draft.postalCode.trim() ||
+        draft.country.trim() ||
+        draft.latitude.trim() ||
+        draft.longitude.trim()
+    );
+    if (!hasAnyData) {
+      return { payload: null, error: null };
+    }
+
+    if (!draft.name.trim()) return { payload: null, error: "Endereço da empresa: informe o nome do local." };
+    if (!draft.addressLine.trim()) return { payload: null, error: "Endereço da empresa: informe o endereço." };
+    if (!draft.city.trim()) return { payload: null, error: "Endereço da empresa: informe a cidade." };
+    if (!draft.state.trim()) return { payload: null, error: "Endereço da empresa: informe o estado." };
+    if (!draft.country.trim()) return { payload: null, error: "Endereço da empresa: informe o país." };
+
+    let lat: number | null = null;
+    let lng: number | null = null;
+    if (draft.latitude.trim() || draft.longitude.trim()) {
+      lat = Number(draft.latitude);
+      lng = Number(draft.longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return { payload: null, error: "Endereço da empresa: latitude/longitude inválidas." };
+      }
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        return { payload: null, error: "Endereço da empresa: latitude/longitude fora de faixa." };
+      }
+    }
+
+    return {
+      payload: {
+        name: draft.name.trim(),
+        address_line: draft.addressLine.trim(),
+        city: draft.city.trim(),
+        state: draft.state.trim(),
+        postal_code: draft.postalCode.trim() || null,
+        country: draft.country.trim().toUpperCase(),
+        latitude: lat,
+        longitude: lng,
+        is_active: draft.isActive
+      },
+      error: null
+    };
+  }
+
+  async function saveTenantServiceLocation(targetTenantId: string): Promise<boolean> {
+    const parsed = parseTenantServiceLocationDraft();
+    if (parsed.error) {
+      setError(parsed.error);
+      return false;
+    }
+    if (!parsed.payload) return true;
+
+    const supabase = getSupabaseBrowserClient();
+    const table = (supabase as any).from("service_locations");
+    const payload = {
+      tenant_id: targetTenantId,
+      professional_id: null,
+      ...parsed.payload
+    };
+    const mutation = tenantServiceLocationDraft.id
+      ? table.update(payload).eq("id", tenantServiceLocationDraft.id).is("professional_id", null)
+      : table.insert(payload);
+    const { error: saveError } = await mutation;
+    if (saveError) {
+      setError(saveError.message);
+      return false;
+    }
+    return true;
+  }
 
   async function uploadLogoForTenant(targetTenantId: string, file: File): Promise<string> {
     if (!ALLOWED_LOGO_TYPES.has(file.type)) {
@@ -191,6 +348,10 @@ export default function OnboardingPage() {
           setError(profileUpdateError.message);
           return;
         }
+        const locationSaved = await saveTenantServiceLocation(tenantId);
+        if (!locationSaved) {
+          return;
+        }
 
         setLogoUrl(nextLogoUrl);
         setLogoFile(null);
@@ -245,6 +406,13 @@ export default function OnboardingPage() {
         }
       }
 
+      if (createdTenantId) {
+        const locationSaved = await saveTenantServiceLocation(createdTenantId);
+        if (!locationSaved) {
+          return;
+        }
+      }
+
       setStatus(`organização inicializada: ${createdTenantId ?? "ok"}`);
       router.push("/dashboard");
     } finally {
@@ -254,7 +422,7 @@ export default function OnboardingPage() {
 
   if (loading) {
     return (
-      <section className="card col medium">
+      <section className="card col">
         <h1>configuração inicial</h1>
         <p>Carregando dados da organização...</p>
       </section>
@@ -262,7 +430,7 @@ export default function OnboardingPage() {
   }
 
   return (
-    <section className="card col medium">
+    <section className="card col">
       <h1>configuração inicial</h1>
       <p>
         {isInitialized
@@ -309,6 +477,83 @@ export default function OnboardingPage() {
             placeholder="(11) 99999-9999"
           />
         </label>
+
+        <div className="card col">
+          <h2>Endereço padrão da empresa</h2>
+          <div className="absence-grid">
+            <label className="col">
+              Nome do local
+              <input
+                value={tenantServiceLocationDraft.name}
+                onChange={(e) => updateTenantServiceLocationDraft({ name: e.target.value })}
+                placeholder="Ex.: Unidade Centro"
+              />
+            </label>
+            <label className="col absence-reason">
+              Endereço
+              <input
+                value={tenantServiceLocationDraft.addressLine}
+                onChange={(e) => updateTenantServiceLocationDraft({ addressLine: e.target.value })}
+                placeholder="Rua, número e complemento"
+              />
+            </label>
+            <label className="col">
+              Cidade
+              <input
+                value={tenantServiceLocationDraft.city}
+                onChange={(e) => updateTenantServiceLocationDraft({ city: e.target.value })}
+              />
+            </label>
+            <label className="col">
+              Estado
+              <input
+                value={tenantServiceLocationDraft.state}
+                onChange={(e) => updateTenantServiceLocationDraft({ state: e.target.value })}
+              />
+            </label>
+            <label className="col">
+              CEP
+              <input
+                value={tenantServiceLocationDraft.postalCode}
+                onChange={(e) => updateTenantServiceLocationDraft({ postalCode: e.target.value })}
+              />
+            </label>
+            <label className="col">
+              País
+              <input
+                value={tenantServiceLocationDraft.country}
+                onChange={(e) => updateTenantServiceLocationDraft({ country: e.target.value })}
+              />
+            </label>
+            <label className="col">
+              Latitude (opcional)
+              <input
+                value={tenantServiceLocationDraft.latitude}
+                onChange={(e) => updateTenantServiceLocationDraft({ latitude: e.target.value })}
+                placeholder="-23.56321"
+              />
+            </label>
+            <label className="col">
+              Longitude (opcional)
+              <input
+                value={tenantServiceLocationDraft.longitude}
+                onChange={(e) => updateTenantServiceLocationDraft({ longitude: e.target.value })}
+                placeholder="-46.65425"
+              />
+            </label>
+          </div>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={tenantServiceLocationDraft.isActive}
+              onChange={(e) => updateTenantServiceLocationDraft({ isActive: e.target.checked })}
+            />
+            Endereço ativo
+          </label>
+          <small className="text-muted">
+            Este endereço é usado como fallback quando o profissional não tem endereço próprio.
+          </small>
+        </div>
 
         <label className="col">
           Logotipo da organização

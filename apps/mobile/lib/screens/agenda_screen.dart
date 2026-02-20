@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:mobile/theme/app_theme.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -22,9 +22,13 @@ class _AgendaScreenState extends State<AgendaScreen> {
 
   bool _loading = false;
   bool _actionLoading = false;
+  bool _alertsLoading = false;
+  bool _alertsExpanded = true;
   String? _error;
 
   List<AppointmentItem> _appointments = [];
+  List<PunctualityAlertItem> _punctualityAlerts = [];
+  Map<String, ClientLocationConsentItem> _locationConsents = {};
   List<OptionItem> _professionals = [];
   Map<String, String> _timezoneByProfessional = {};
   Map<String, ProfessionalScheduleSettings> _scheduleByProfessional = {};
@@ -110,7 +114,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
           background: AppColors.secondary.withValues(alpha: 0.14),
           border: AppColors.secondary.withValues(alpha: 0.4),
           text: const Color(0xFF0F666A),
-          label: 'Concluído',
+          label: 'ConcluÃ­do',
         );
       case 'rescheduled':
         return (
@@ -124,7 +128,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
           background: AppColors.danger.withValues(alpha: 0.12),
           border: AppColors.danger.withValues(alpha: 0.35),
           text: const Color(0xFF8A2E2A),
-          label: 'Não compareceu',
+          label: 'NÃ£o compareceu',
         );
       case 'scheduled':
         return (
@@ -138,7 +142,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
           background: const Color(0xFFF0F2F5),
           border: const Color(0xFFD8DEE5),
           text: const Color(0xFF4B5766),
-          label: 'Disponível',
+          label: 'DisponÃ­vel',
         );
       default:
         return (
@@ -147,6 +151,204 @@ class _AgendaScreenState extends State<AgendaScreen> {
           text: const Color(0xFF5C6470),
           label: status,
         );
+    }
+  }
+
+  ({Color background, Color border, Color text, Color stripe, String label})
+      _punctualityVisual(String status) {
+    switch (status.toLowerCase()) {
+      case 'on_time':
+        return (
+          background: AppColors.secondary.withValues(alpha: 0.14),
+          border: AppColors.secondary.withValues(alpha: 0.4),
+          text: const Color(0xFF0F666A),
+          stripe: AppColors.secondary,
+          label: 'No horÃ¡rio',
+        );
+      case 'late_ok':
+        return (
+          background: AppColors.accent.withValues(alpha: 0.17),
+          border: AppColors.accent.withValues(alpha: 0.45),
+          text: const Color(0xFF8A5427),
+          stripe: AppColors.accent,
+          label: 'Atraso leve',
+        );
+      case 'late_critical':
+        return (
+          background: AppColors.danger.withValues(alpha: 0.12),
+          border: AppColors.danger.withValues(alpha: 0.35),
+          text: const Color(0xFF8A2E2A),
+          stripe: AppColors.danger,
+          label: 'Atraso crÃ­tico',
+        );
+      case 'no_data':
+      default:
+        return (
+          background: const Color(0xFFF0F2F5),
+          border: const Color(0xFFD8DEE5),
+          text: const Color(0xFF4B5766),
+          stripe: AppColors.muted,
+          label: 'Sem dados',
+        );
+    }
+  }
+
+  ({Color background, Color border, Color text, String label, String detail})
+      _consentVisual(String appointmentId) {
+    final consent = _locationConsents[appointmentId];
+    if (consent == null) {
+      return (
+        background: const Color(0xFFF0F2F5),
+        border: const Color(0xFFD8DEE5),
+        text: const Color(0xFF4B5766),
+        label: 'Sem consentimento',
+        detail: 'Cliente ainda nÃ£o autorizou localizaÃ§Ã£o',
+      );
+    }
+
+    final status = consent.consentStatus.toLowerCase();
+    final expiry = consent.expiresAt;
+    if (status == 'granted' && consent.isGrantedActive) {
+      final detail = expiry == null
+          ? 'VÃ¡lido sem expiraÃ§Ã£o'
+          : 'VÃ¡lido atÃ© ${_formatShortDate(expiry.toLocal())}';
+      return (
+        background: AppColors.secondary.withValues(alpha: 0.14),
+        border: AppColors.secondary.withValues(alpha: 0.4),
+        text: const Color(0xFF0F666A),
+        label: 'Consentimento ativo',
+        detail: detail,
+      );
+    }
+
+    if (status == 'denied') {
+      return (
+        background: AppColors.danger.withValues(alpha: 0.12),
+        border: AppColors.danger.withValues(alpha: 0.35),
+        text: const Color(0xFF8A2E2A),
+        label: 'Consentimento negado',
+        detail: 'Sem autorizaÃ§Ã£o para monitoramento',
+      );
+    }
+
+    if (status == 'revoked') {
+      return (
+        background: AppColors.accent.withValues(alpha: 0.17),
+        border: AppColors.accent.withValues(alpha: 0.45),
+        text: const Color(0xFF8A5427),
+        label: 'Consentimento revogado',
+        detail: 'AutorizaÃ§Ã£o removida pelo cliente',
+      );
+    }
+
+    return (
+      background: const Color(0xFFF0F2F5),
+      border: const Color(0xFFD8DEE5),
+      text: const Color(0xFF4B5766),
+      label: 'Consentimento expirado',
+      detail: 'Renove a autorizaÃ§Ã£o de localizaÃ§Ã£o',
+    );
+  }
+
+  String _punctualityDetail(AppointmentItem item) {
+    final eta = item.punctualityEtaMin;
+    final delay = item.punctualityPredictedDelayMin;
+    if (eta == null && delay == null) return 'Sem dados de deslocamento';
+    if (eta != null && delay != null) {
+      return 'ETA $eta min â€¢ atraso previsto $delay min';
+    }
+    if (eta != null) return 'ETA $eta min';
+    return 'Atraso previsto $delay min';
+  }
+
+  String _alertTypeLabel(String type) {
+    switch (type) {
+      case 'punctuality_on_time':
+        return 'Cliente no horÃ¡rio';
+      case 'punctuality_late_ok':
+        return 'Cliente com atraso leve';
+      case 'punctuality_late_critical':
+        return 'Atraso crÃ­tico';
+      default:
+        return 'Alerta de pontualidade';
+    }
+  }
+
+  String _alertSummary(PunctualityAlertItem alert) {
+    final eta = (alert.payload['eta_minutes'] as num?)?.toInt();
+    final delay = (alert.payload['predicted_arrival_delay'] as num?)?.toInt();
+    if (eta != null && delay != null) {
+      return 'ETA $eta min â€¢ atraso previsto $delay min';
+    }
+    if (eta != null) return 'ETA $eta min';
+    if (delay != null) return 'Atraso previsto $delay min';
+    return 'Sem dados adicionais';
+  }
+
+  String _formatAlertTime(DateTime utcDateTime) {
+    final local = utcDateTime.toLocal();
+    final dd = local.day.toString().padLeft(2, '0');
+    final mm = local.month.toString().padLeft(2, '0');
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mi = local.minute.toString().padLeft(2, '0');
+    return '$dd/$mm $hh:$mi';
+  }
+
+  Future<void> _markAlertAsRead(PunctualityAlertItem alert) async {
+    if (alert.isRead) return;
+    setState(() => _alertsLoading = true);
+    try {
+      await _appointmentService.markPunctualityAlertRead(alert.id);
+      if (!mounted) return;
+      setState(() {
+        _punctualityAlerts = _punctualityAlerts
+            .map((item) => item.id == alert.id
+                ? PunctualityAlertItem(
+                    id: item.id,
+                    appointmentId: item.appointmentId,
+                    type: item.type,
+                    status: 'read',
+                    createdAt: item.createdAt,
+                    payload: item.payload,
+                  )
+                : item)
+            .toList();
+      });
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Erro ao marcar alerta como lido');
+    } finally {
+      if (mounted) setState(() => _alertsLoading = false);
+    }
+  }
+
+  Future<void> _markAllAlertsAsRead() async {
+    final unread = _punctualityAlerts.where((item) => !item.isRead).toList();
+    if (unread.isEmpty) return;
+    setState(() => _alertsLoading = true);
+    try {
+      await _appointmentService
+          .markPunctualityAlertsRead(unread.map((item) => item.id).toList());
+      if (!mounted) return;
+      setState(() {
+        _punctualityAlerts = _punctualityAlerts
+            .map((item) => item.isRead
+                ? item
+                : PunctualityAlertItem(
+                    id: item.id,
+                    appointmentId: item.appointmentId,
+                    type: item.type,
+                    status: 'read',
+                    createdAt: item.createdAt,
+                    payload: item.payload,
+                  ))
+            .toList();
+      });
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Erro ao marcar alertas como lidos');
+      }
+    } finally {
+      if (mounted) setState(() => _alertsLoading = false);
     }
   }
 
@@ -317,6 +519,33 @@ class _AgendaScreenState extends State<AgendaScreen> {
         end: range.end,
         professionalId: _selectedProfessionalId,
       );
+      final appointmentIds = items.map((item) => item.id).toList();
+      final consentByAppointment =
+          await _appointmentService.getLocationConsents(appointmentIds);
+      final alerts = await _appointmentService.getPunctualityAlerts(
+        appointmentIds: appointmentIds,
+        limit: 8,
+      );
+      final queuedAlertIds =
+          alerts.where((item) => item.isQueued).map((item) => item.id).toList();
+      if (queuedAlertIds.isNotEmpty) {
+        await _appointmentService
+            .markPunctualityAlertsDelivered(queuedAlertIds);
+      }
+      final normalizedAlerts = alerts
+          .map(
+            (item) => item.isQueued
+                ? PunctualityAlertItem(
+                    id: item.id,
+                    appointmentId: item.appointmentId,
+                    type: item.type,
+                    status: 'sent',
+                    createdAt: item.createdAt,
+                    payload: item.payload,
+                  )
+                : item,
+          )
+          .toList();
 
       final activeProfessionalIds = _selectedProfessionalId != null
           ? <String>[_selectedProfessionalId!]
@@ -333,6 +562,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
 
       setState(() {
         _appointments = items;
+        _punctualityAlerts = normalizedAlerts;
+        _locationConsents = consentByAppointment;
         _timezoneByProfessional = timezoneByProfessional;
         _scheduleByProfessional = scheduleByProfessional;
         _slotMinutesByProfessional = slotMinutesByProfessional;
@@ -399,13 +630,13 @@ class _AgendaScreenState extends State<AgendaScreen> {
   String _previousLabel() {
     if (_viewMode == AgendaViewMode.day) return 'Dia anterior';
     if (_viewMode == AgendaViewMode.week) return 'Semana anterior';
-    return 'Mês anterior';
+    return 'MÃªs anterior';
   }
 
   String _nextLabel() {
-    if (_viewMode == AgendaViewMode.day) return 'Próximo dia';
-    if (_viewMode == AgendaViewMode.week) return 'Próxima semana';
-    return 'Próximo mês';
+    if (_viewMode == AgendaViewMode.day) return 'PrÃ³ximo dia';
+    if (_viewMode == AgendaViewMode.week) return 'PrÃ³xima semana';
+    return 'PrÃ³ximo mÃªs';
   }
 
   bool _isFinalStatus(String status) {
@@ -473,8 +704,12 @@ class _AgendaScreenState extends State<AgendaScreen> {
         title: const Text('Cancelar agendamento'),
         content: const Text('Deseja realmente cancelar este agendamento?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Voltar')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Cancelar')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Voltar')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Cancelar')),
         ],
       ),
     );
@@ -499,7 +734,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
     await _runStatusUpdate(
       appointmentId: item.id,
       status: 'no_show',
-      errorMessage: 'Erro ao marcar não compareceu',
+      errorMessage: 'Erro ao marcar nÃ£o compareceu',
     );
   }
 
@@ -526,6 +761,205 @@ class _AgendaScreenState extends State<AgendaScreen> {
       await _loadAppointments();
     } catch (_) {
       if (mounted) setState(() => _error = 'Erro ao remarcar agendamento');
+    } finally {
+      if (mounted) setState(() => _actionLoading = false);
+    }
+  }
+
+  Future<void> _handleUpdatePunctuality(AppointmentItem item) async {
+    final consent = _locationConsents[item.id];
+    if (consent == null || !consent.isGrantedActive) {
+      setState(() {
+        _error =
+            'Sem consentimento ativo de localizaÃ§Ã£o para esta consulta. Registre o consentimento antes de monitorar.';
+      });
+      return;
+    }
+
+    final controller = TextEditingController(
+      text: item.punctualityEtaMin?.toString() ?? '',
+    );
+    final etaMinutes = await showDialog<int?>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Atualizar pontualidade'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'ETA em minutos (opcional)',
+            hintText: 'Ex.: 20',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, null),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final value = controller.text.trim();
+              if (value.isEmpty) {
+                Navigator.pop(ctx, -1);
+                return;
+              }
+              final parsed = int.tryParse(value);
+              Navigator.pop(ctx, parsed);
+            },
+            child: const Text('Enviar'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+    if (etaMinutes == null) return;
+
+    setState(() {
+      _actionLoading = true;
+      _error = null;
+    });
+    try {
+      await _appointmentService.sendPunctualitySnapshot(
+        appointmentId: item.id,
+        etaMinutes: etaMinutes == -1 ? null : etaMinutes,
+      );
+      await _loadAppointments();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Erro ao atualizar pontualidade');
+      }
+    } finally {
+      if (mounted) setState(() => _actionLoading = false);
+    }
+  }
+
+  Future<void> _handleLocationConsent(AppointmentItem item) async {
+    final current = _locationConsents[item.id];
+    String selectedStatus = current?.consentStatus.toLowerCase() == 'granted'
+        ? 'granted'
+        : current?.consentStatus.toLowerCase() == 'denied'
+            ? 'denied'
+            : current?.consentStatus.toLowerCase() == 'revoked'
+                ? 'revoked'
+                : 'granted';
+    final versionController =
+        TextEditingController(text: current?.consentTextVersion ?? 'v1');
+    final expiryHoursController = TextEditingController(text: '24');
+
+    final shouldSave = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) => AlertDialog(
+          title: const Text('Consentimento de localizaÃ§Ã£o'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${item.clientName} â€¢ ${item.serviceName}',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                initialValue: selectedStatus,
+                decoration: const InputDecoration(
+                  labelText: 'Status do consentimento',
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'granted',
+                    child: Text('Concedido'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'denied',
+                    child: Text('Negado'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'revoked',
+                    child: Text('Revogado'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'expired',
+                    child: Text('Expirado'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setModalState(() => selectedStatus = value);
+                },
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: versionController,
+                decoration: const InputDecoration(
+                  labelText: 'VersÃ£o do termo',
+                  hintText: 'Ex.: v1',
+                ),
+              ),
+              if (selectedStatus == 'granted') ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: expiryHoursController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(
+                    labelText: 'Validade em horas',
+                    hintText: 'Ex.: 24',
+                  ),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Salvar'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    if (shouldSave != true) {
+      versionController.dispose();
+      expiryHoursController.dispose();
+      return;
+    }
+
+    DateTime? expiresAt;
+    if (selectedStatus == 'granted') {
+      final hours = int.tryParse(expiryHoursController.text.trim()) ?? 24;
+      expiresAt = DateTime.now().toUtc().add(Duration(
+            hours: hours.clamp(1, 24 * 30),
+          ));
+    }
+
+    final consentVersion = versionController.text.trim().isEmpty
+        ? 'v1'
+        : versionController.text.trim();
+    versionController.dispose();
+    expiryHoursController.dispose();
+
+    setState(() {
+      _actionLoading = true;
+      _error = null;
+    });
+    try {
+      await _appointmentService.registerLocationConsent(
+        appointment: item,
+        consentStatus: selectedStatus,
+        consentTextVersion: consentVersion,
+        expiresAt: expiresAt,
+      );
+      await _loadAppointments();
+    } catch (_) {
+      if (mounted) {
+        setState(() => _error = 'Erro ao registrar consentimento');
+      }
     } finally {
       if (mounted) setState(() => _actionLoading = false);
     }
@@ -633,77 +1067,326 @@ class _AgendaScreenState extends State<AgendaScreen> {
           final filteredAppointments = _filteredAppointments;
           final item = filteredAppointments[index];
           final status = _statusVisual(item.status);
+          final punctuality = _punctualityVisual(item.punctualityStatus);
+          final consent = _consentVisual(item.id);
           final timezone = _timezoneByProfessional[item.professionalId] ??
               'America/Sao_Paulo';
 
           return Card(
-            child: ListTile(
-              title: Text('${item.serviceName} - ${item.clientName}'),
-              subtitle: Text(
-                '${_formatTime(item.startsAt, timezone)} - ${_formatTime(item.endsAt, timezone)} (${item.professionalName})',
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                border: Border(
+                  left: BorderSide(color: punctuality.stripe, width: 4),
+                ),
               ),
-              trailing: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: status.background,
-                      borderRadius: BorderRadius.circular(999),
-                      border: Border.all(color: status.border),
+              child: ListTile(
+                title: Text('${item.serviceName} - ${item.clientName}'),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${_formatTime(item.startsAt, timezone)} - ${_formatTime(item.endsAt, timezone)} (${item.professionalName})',
                     ),
-                    child: Text(
-                      status.label,
-                      style: TextStyle(
-                        color: status.text,
-                        fontWeight: FontWeight.w500,
-                        fontSize: 12,
-                      ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _punctualityDetail(item),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: const Color(0xFF5C6470),
+                          ),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  PopupMenuButton<String>(
-                    enabled: !_actionLoading,
-                    onSelected: (value) async {
-                      if (value == 'reschedule') await _handleReschedule(item);
-                      if (value == 'cancel') await _handleCancel(item);
-                      if (value == 'complete') await _handleComplete(item);
-                      if (value == 'no_show') await _handleNoShow(item);
-                    },
-                    itemBuilder: (_) {
-                      final disabled = _isFinalStatus(item.status);
-                      return [
-                        PopupMenuItem(
-                          value: 'reschedule',
-                          enabled: !disabled,
-                          child: const Text('Remarcar'),
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: consent.background,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: consent.border),
+                          ),
+                          child: Text(
+                            consent.label,
+                            style: TextStyle(
+                              color: consent.text,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
-                        PopupMenuItem(
-                          value: 'cancel',
-                          enabled: !disabled,
-                          child: const Text('Cancelar'),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            consent.detail,
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF5C6470),
+                                    ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        PopupMenuItem(
-                          value: 'complete',
-                          enabled: !disabled,
-                          child: const Text('Concluir'),
+                      ],
+                    ),
+                  ],
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: status.background,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: status.border),
+                          ),
+                          child: Text(
+                            status.label,
+                            style: TextStyle(
+                              color: status.text,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
-                        PopupMenuItem(
-                          value: 'no_show',
-                          enabled: !disabled,
-                          child: const Text('Não compareceu'),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: punctuality.background,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: punctuality.border),
+                          ),
+                          child: Text(
+                            punctuality.label,
+                            style: TextStyle(
+                              color: punctuality.text,
+                              fontWeight: FontWeight.w500,
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
-                      ];
-                    },
-                  ),
-                ],
+                      ],
+                    ),
+                    const SizedBox(width: 4),
+                    PopupMenuButton<String>(
+                      enabled: !_actionLoading,
+                      onSelected: (value) async {
+                        if (value == 'reschedule') {
+                          await _handleReschedule(item);
+                        }
+                        if (value == 'cancel') await _handleCancel(item);
+                        if (value == 'complete') await _handleComplete(item);
+                        if (value == 'no_show') await _handleNoShow(item);
+                        if (value == 'update_punctuality') {
+                          await _handleUpdatePunctuality(item);
+                        }
+                        if (value == 'update_consent') {
+                          await _handleLocationConsent(item);
+                        }
+                      },
+                      itemBuilder: (_) {
+                        final disabled = _isFinalStatus(item.status);
+                        final canUpdatePunctuality =
+                            (_locationConsents[item.id]?.isGrantedActive ??
+                                false);
+                        return [
+                          PopupMenuItem(
+                            value: 'update_punctuality',
+                            enabled: canUpdatePunctuality,
+                            child: Text(canUpdatePunctuality
+                                ? 'Atualizar pontualidade'
+                                : 'Pontualidade (sem consentimento)'),
+                          ),
+                          const PopupMenuItem(
+                            value: 'update_consent',
+                            child: Text('Registrar consentimento'),
+                          ),
+                          PopupMenuItem(
+                            value: 'reschedule',
+                            enabled: !disabled,
+                            child: const Text('Remarcar'),
+                          ),
+                          PopupMenuItem(
+                            value: 'cancel',
+                            enabled: !disabled,
+                            child: const Text('Cancelar'),
+                          ),
+                          PopupMenuItem(
+                            value: 'complete',
+                            enabled: !disabled,
+                            child: const Text('Concluir'),
+                          ),
+                          PopupMenuItem(
+                            value: 'no_show',
+                            enabled: !disabled,
+                            child: const Text('NÃ£o compareceu'),
+                          ),
+                        ];
+                      },
+                    ),
+                  ],
+                ),
               ),
             ),
           );
         },
         separatorBuilder: (_, __) => const SizedBox(height: 8),
         itemCount: _filteredAppointments.length,
+      ),
+    );
+  }
+
+  Widget _buildPunctualityAlerts() {
+    if (_punctualityAlerts.isEmpty) return const SizedBox.shrink();
+
+    final appointmentById = {
+      for (final item in _appointments) item.id: item,
+    };
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              InkWell(
+                borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                onTap: () => setState(() => _alertsExpanded = !_alertsExpanded),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Alertas de pontualidade (${_punctualityAlerts.length})',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      Icon(_alertsExpanded
+                          ? Icons.expand_less
+                          : Icons.expand_more),
+                    ],
+                  ),
+                ),
+              ),
+              if (_alertsExpanded) ...[
+                const SizedBox(height: 8),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _alertsLoading ? null : _markAllAlertsAsRead,
+                    child: const Text('Marcar todos como lidos'),
+                  ),
+                ),
+                if (_alertsLoading)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 8),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  ),
+                ..._punctualityAlerts.map((alert) {
+                  final appointment = appointmentById[alert.appointmentId];
+                  final title = appointment != null
+                      ? '${appointment.clientName} • ${appointment.serviceName}'
+                      : 'Consulta ${alert.appointmentId.substring(0, 8)}';
+
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                      border: Border.all(color: const Color(0xFFD7DDE4)),
+                      color: Colors.white,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                _alertTypeLabel(alert.type),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .labelMedium
+                                    ?.copyWith(
+                                      color: AppColors.primary,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: alert.isRead
+                                    ? const Color(0xFFF0F2F5)
+                                    : AppColors.accent.withValues(alpha: 0.16),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: alert.isRead
+                                      ? const Color(0xFFD8DEE5)
+                                      : AppColors.accent
+                                          .withValues(alpha: 0.45),
+                                ),
+                              ),
+                              child: Text(
+                                alert.isRead ? 'Lido' : 'Nao lido',
+                                style: TextStyle(
+                                  color: alert.isRead
+                                      ? const Color(0xFF5C6470)
+                                      : const Color(0xFF8A5427),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 2),
+                        Text(title),
+                        const SizedBox(height: 2),
+                        Text(
+                          _alertSummary(alert),
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF5C6470),
+                                  ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _formatAlertTime(alert.createdAt),
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: const Color(0xFF7A8492),
+                                  ),
+                        ),
+                        if (!alert.isRead)
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: TextButton(
+                              onPressed: _alertsLoading
+                                  ? null
+                                  : () => _markAlertAsRead(alert),
+                              child: const Text('Marcar como lido'),
+                            ),
+                          ),
+                      ],
+                    ),
+                  );
+                }),
+              ],
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -798,15 +1481,13 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                       value: 'cancelled',
                                       child: Text('Cancelado')),
                                   DropdownMenuItem(
-                                      value: 'done',
-                                      child: Text('Concluído')),
+                                      value: 'done', child: Text('ConcluÃ­do')),
                                   DropdownMenuItem(
                                       value: 'no_show',
-                                      child: Text('Não compareceu')),
+                                      child: Text('NÃ£o compareceu')),
                                 ],
                                 onChanged: (value) async {
-                                  setState(
-                                      () => _selectedStatus = value ?? '');
+                                  setState(() => _selectedStatus = value ?? '');
                                   await _loadAppointments();
                                 },
                               ),
@@ -867,7 +1548,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                                 : null,
                                       ),
                                       child: Text(
-                                        'Mês',
+                                        'MÃªs',
                                         style: TextStyle(
                                           color:
                                               _viewMode == AgendaViewMode.month
@@ -896,7 +1577,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                   IconButton(
                                     tooltip: _previousLabel(),
                                     onPressed: () => _shiftAgendaDate(
-                                        _viewMode == AgendaViewMode.week ? -7 : -1),
+                                        _viewMode == AgendaViewMode.week
+                                            ? -7
+                                            : -1),
                                     icon: const Icon(Icons.chevron_left),
                                   ),
                                   const SizedBox(width: 8),
@@ -925,7 +1608,9 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                   IconButton(
                                     tooltip: _nextLabel(),
                                     onPressed: () => _shiftAgendaDate(
-                                        _viewMode == AgendaViewMode.week ? 7 : 1),
+                                        _viewMode == AgendaViewMode.week
+                                            ? 7
+                                            : 1),
                                     icon: const Icon(Icons.chevron_right),
                                   ),
                                 ],
@@ -945,6 +1630,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
                         ),
                       ),
                     ),
+                    _buildPunctualityAlerts(),
                     if (_viewMode == AgendaViewMode.day)
                       _buildDayList()
                     else

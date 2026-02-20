@@ -11,9 +11,11 @@
     "dev:supabase": "supabase start",
     "dev:supabase:stop": "supabase stop",
     "supabase:migrate": "supabase db push",
-    "supabase:functions:deploy": "supabase functions deploy bootstrap-tenant && supabase functions deploy create-appointment && supabase functions deploy whatsapp-webhook",
+    "supabase:functions:deploy": "supabase functions deploy bootstrap-tenant && supabase functions deploy create-appointment && supabase functions deploy whatsapp-webhook && supabase functions deploy punctuality-monitor && supabase functions deploy punctuality-scheduler && supabase functions deploy punctuality-push-dispatcher && supabase functions deploy punctuality-whatsapp-dispatcher && supabase functions deploy punctuality-retention-cleanup",
     "lint:web": "npm --workspace apps/web run lint",
-    "typecheck": "npm --workspace packages/shared run typecheck && npm --workspace apps/web run typecheck"
+    "typecheck": "npm --workspace packages/shared run typecheck && npm --workspace apps/web run typecheck",
+    "test:integration:eta-monitor": "powershell -ExecutionPolicy Bypass -File scripts/punctuality-eta-monitor-integration.ps1",
+    "test:e2e:punctuality": "powershell -ExecutionPolicy Bypass -File scripts/punctuality-flow-e2e.ps1"
   },
   "engines": {
     "node": ">=20"
