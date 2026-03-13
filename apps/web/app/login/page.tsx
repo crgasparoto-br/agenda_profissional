@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
@@ -21,6 +21,37 @@ export default function LoginPage() {
   const router = useRouter();
   const invalidCredentialsRegex = /invalid login credentials/i;
   const alreadyRegisteredRegex = /user already registered|already exists|user_already_exists/i;
+
+  useEffect(() => {
+    let active = true;
+    const supabase = getSupabaseBrowserClient();
+
+    async function redirectIfAuthenticated() {
+      const { data } = await supabase.auth.getUser();
+      if (!active || !data.user) return;
+
+      const path = parseAccessPath(data.user.user_metadata?.access_path);
+      if (path === "client") {
+        router.replace("/client-area");
+        return;
+      }
+
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("tenant_id")
+        .eq("id", data.user.id)
+        .maybeSingle();
+
+      if (!active) return;
+      router.replace(profileData?.tenant_id ? "/dashboard" : "/onboarding");
+    }
+
+    redirectIfAuthenticated();
+
+    return () => {
+      active = false;
+    };
+  }, [router]);
 
   function getFriendlyAuthError(message: string) {
     if (invalidCredentialsRegex.test(message)) {

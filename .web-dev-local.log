@@ -1,0 +1,61 @@
+
+> agenda-profissional@0.1.0 dev:web
+> npm --workspace apps/web run dev
+
+
+> @agenda-profissional/web@0.1.0 dev
+> next dev
+
+ ⚠ Port 3000 is in use by process 9996, using available port 3003 instead.
+   ▲ Next.js 15.5.12
+   - Local:        http://localhost:3003
+   - Network:      http://192.168.18.101:3003
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 3.9s
+ ○ Compiling /login ...
+ ✓ Compiled /login in 6.5s (743 modules)
+ GET /login 200 in 7359ms
+ ○ Compiling / ...
+ ✓ Compiled / in 4.4s (750 modules)
+ GET / 200 in 6133ms
+ GET /login 200 in 196ms
+   Reload env: .env.local
+ ✓ Compiled in 1479ms (745 modules)
+ GET /login 200 in 440ms
+ GET /login 200 in 559ms
+ GET /login 200 in 110ms
+ ○ Compiling /onboarding ...
+ ✓ Compiled /onboarding in 1866ms (778 modules)
+ ⚠ Fast Refresh had to perform a full reload. Read more: https://nextjs.org/docs/messages/fast-refresh-reload
+ GET /onboarding 200 in 2239ms
+ GET /login 200 in 434ms
+ GET /onboarding 200 in 79ms
+ ○ Compiling /dashboard ...
+ ✓ Compiled /dashboard in 4.2s (815 modules)
+ GET /dashboard 200 in 4864ms
+ ✓ Compiled in 774ms (344 modules)
+ GET /dashboard 200 in 300ms
+ GET /dashboard 200 in 94ms
+ GET /onboarding 200 in 277ms
+ GET /dashboard 200 in 73ms
+ GET /dashboard 200 in 316ms
+ GET /onboarding 200 in 40ms
+ ○ Compiling /whatsapp ...
+ ✓ Compiled /whatsapp in 1264ms (808 modules)
+ GET /whatsapp 200 in 1620ms
+ ✓ Compiled in 1993ms (822 modules)
+ GET /whatsapp 200 in 418ms
+ ✓ Compiled in 1314ms (822 modules)
+ GET /whatsapp 200 in 347ms
+ GET /whatsapp 200 in 362ms
+ ○ Compiling /services ...
+ ✓ Compiled /services in 1878ms (868 modules)
+ GET /services 200 in 2262ms
+ GET /services 200 in 73ms
+ GET /whatsapp 200 in 70ms
+ ✓ Compiled in 1930ms (868 modules)
+ GET /whatsapp 200 in 282ms
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Dev\agenda_profissional\apps\web\.next\cache\webpack\client-development\3.pack.gz_' -> 'C:\Dev\agenda_profissional\apps\web\.next\cache\webpack\client-development\3.pack.gz'
+^C

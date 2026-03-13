@@ -14,6 +14,8 @@ type IncomingWhatsappMessage = {
   timestamp?: string;
   type?: string;
   text?: { body?: string };
+  audio?: { id?: string; mime_type?: string; sha256?: string; voice?: boolean };
+  contact_name?: string | null;
 };
 
 type IncomingContact = {
@@ -97,8 +99,28 @@ type TenantChannelConfig = {
   tenantId: string;
   outboundPhoneNumberId: string | null;
   aiEnabled: boolean;
+  audioEnabled: boolean;
   aiModel: string | null;
   aiSystemPrompt: string | null;
+};
+
+type WhatsappMediaDetails = {
+  id: string;
+  url: string;
+  mimeType: string | null;
+  sha256: string | null;
+  fileSizeBytes: number | null;
+};
+
+type InboundMessageResolution = {
+  messageType: "text" | "audio";
+  messageText: string;
+  transcriptionText: string | null;
+  mediaId: string | null;
+  mediaMimeType: string | null;
+  mediaSha256: string | null;
+  aiPayload: Record<string, unknown>;
+  autoReply: string | null;
 };
 
 type AvailabilityContext = {
@@ -116,6 +138,26 @@ function normalizePhone(value: string | null | undefined): string {
 
 function sanitizeWhatsappText(value: string): string {
   return value.trim().replace(/\s+/g, " ").slice(0, 4096);
+}
+
+function isTruthyEnv(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+function parseEnvInteger(value: string | null | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function extensionFromMimeType(mimeType: string | null): string {
+  if (!mimeType) return "bin";
+  if (mimeType.includes("ogg")) return "ogg";
+  if (mimeType.includes("mpeg")) return "mp3";
+  if (mimeType.includes("mp4")) return "mp4";
+  if (mimeType.includes("wav")) return "wav";
+  if (mimeType.includes("webm")) return "webm";
+  return "bin";
 }
 
 function normalizeText(value: string): string {
@@ -322,7 +364,7 @@ async function resolveTenantChannelConfig(
   if (phoneNumberId) {
     const { data: channelSetting } = await admin
       .from("whatsapp_channel_settings")
-      .select("tenant_id, phone_number_id, ai_enabled, ai_model, ai_system_prompt")
+      .select("tenant_id, phone_number_id, ai_enabled, audio_enabled, ai_model, ai_system_prompt")
       .eq("phone_number_id", phoneNumberId)
       .eq("active", true)
       .limit(1)
@@ -333,6 +375,7 @@ async function resolveTenantChannelConfig(
         tenant_id: string;
         phone_number_id: string;
         ai_enabled: boolean;
+        audio_enabled: boolean;
         ai_model: string | null;
         ai_system_prompt: string | null;
       };
@@ -341,6 +384,7 @@ async function resolveTenantChannelConfig(
         tenantId: typed.tenant_id,
         outboundPhoneNumberId: typed.phone_number_id,
         aiEnabled: typed.ai_enabled,
+        audioEnabled: typed.audio_enabled,
         aiModel: typed.ai_model,
         aiSystemPrompt: typed.ai_system_prompt
       };
@@ -354,9 +398,204 @@ async function resolveTenantChannelConfig(
     tenantId: fallbackTenantId,
     outboundPhoneNumberId: phoneNumberId ?? Deno.env.get("WHATSAPP_PHONE_NUMBER_ID") ?? null,
     aiEnabled: true,
+    audioEnabled: isTruthyEnv(Deno.env.get("WHATSAPP_AUDIO_ENABLED")),
     aiModel: null,
     aiSystemPrompt: null
   };
+}
+
+async function fetchWhatsappMediaDetails(mediaId: string): Promise<WhatsappMediaDetails> {
+  const accessToken = Deno.env.get("WHATSAPP_ACCESS_TOKEN");
+  const apiVersion = Deno.env.get("WHATSAPP_API_VERSION") ?? "v22.0";
+  if (!accessToken) {
+    throw new Error("Missing WHATSAPP_ACCESS_TOKEN");
+  }
+
+  const detailsResponse = await fetch(`https://graph.facebook.com/${apiVersion}/${mediaId}`, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  if (!detailsResponse.ok) {
+    const errorBody = await detailsResponse.text().catch(() => "");
+    throw new Error(`Meta media lookup failed (${detailsResponse.status}): ${errorBody.slice(0, 300)}`);
+  }
+
+  const payload = (await detailsResponse.json()) as Record<string, unknown>;
+  const url = typeof payload.url === "string" ? payload.url : "";
+  if (!url) {
+    throw new Error("Meta media lookup did not return a URL");
+  }
+
+  return {
+    id: typeof payload.id === "string" ? payload.id : mediaId,
+    url,
+    mimeType: typeof payload.mime_type === "string" ? payload.mime_type : null,
+    sha256: typeof payload.sha256 === "string" ? payload.sha256 : null,
+    fileSizeBytes:
+      typeof payload.file_size === "number" && Number.isFinite(payload.file_size)
+        ? payload.file_size
+        : null
+  };
+}
+
+async function downloadWhatsappMedia(details: WhatsappMediaDetails): Promise<Blob> {
+  const accessToken = Deno.env.get("WHATSAPP_ACCESS_TOKEN");
+  if (!accessToken) {
+    throw new Error("Missing WHATSAPP_ACCESS_TOKEN");
+  }
+
+  const maxBytes = parseEnvInteger(Deno.env.get("WHATSAPP_AUDIO_MAX_BYTES"), 16 * 1024 * 1024);
+  if (details.fileSizeBytes && details.fileSizeBytes > maxBytes) {
+    throw new Error(`Audio exceeds max allowed size (${details.fileSizeBytes} bytes)`);
+  }
+
+  const mediaResponse = await fetch(details.url, {
+    headers: {
+      Authorization: `Bearer ${accessToken}`
+    }
+  });
+
+  if (!mediaResponse.ok) {
+    const errorBody = await mediaResponse.text().catch(() => "");
+    throw new Error(`Meta media download failed (${mediaResponse.status}): ${errorBody.slice(0, 300)}`);
+  }
+
+  const mediaBlob = await mediaResponse.blob();
+  if (mediaBlob.size > maxBytes) {
+    throw new Error(`Audio exceeds max allowed size (${mediaBlob.size} bytes)`);
+  }
+  return mediaBlob;
+}
+
+async function transcribeAudioBlob(audioBlob: Blob, mimeType: string | null): Promise<string> {
+  const apiKey = Deno.env.get("OPENAI_API_KEY");
+  if (!apiKey) {
+    throw new Error("Missing OPENAI_API_KEY");
+  }
+
+  const transcriptionModel =
+    Deno.env.get("OPENAI_AUDIO_TRANSCRIPTION_MODEL") ?? "gpt-4o-mini-transcribe";
+  const formData = new FormData();
+  formData.append("model", transcriptionModel);
+  formData.append(
+    "file",
+    audioBlob,
+    `whatsapp-audio.${extensionFromMimeType(mimeType)}`
+  );
+
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: formData
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text().catch(() => "");
+    throw new Error(`OpenAI transcription failed (${response.status}): ${errorBody.slice(0, 300)}`);
+  }
+
+  const payload = (await response.json()) as Record<string, unknown>;
+  const text = typeof payload.text === "string" ? payload.text : "";
+  return sanitizeWhatsappText(text);
+}
+
+async function resolveInboundMessageContent(
+  message: IncomingWhatsappMessage,
+  channelConfig: TenantChannelConfig
+): Promise<InboundMessageResolution | null> {
+  const rawText = sanitizeWhatsappText(message.text?.body ?? "");
+  if (rawText) {
+    return {
+      messageType: "text",
+      messageText: rawText,
+      transcriptionText: null,
+      mediaId: null,
+      mediaMimeType: null,
+      mediaSha256: null,
+      aiPayload: {},
+      autoReply: null
+    };
+  }
+
+  const audioId = message.audio?.id?.trim() ?? "";
+  if (message.type !== "audio" || !audioId) {
+    return null;
+  }
+
+  const basePayload: Record<string, unknown> = {
+    audio: {
+      id: audioId,
+      mime_type: message.audio?.mime_type ?? null,
+      sha256: message.audio?.sha256 ?? null,
+      voice: message.audio?.voice ?? false
+    }
+  };
+
+  if (!channelConfig.audioEnabled) {
+    return {
+      messageType: "audio",
+      messageText: "[audio recebido sem processamento]",
+      transcriptionText: null,
+      mediaId: audioId,
+      mediaMimeType: message.audio?.mime_type ?? null,
+      mediaSha256: message.audio?.sha256 ?? null,
+      aiPayload: { ...basePayload, audio_processing: { supported: false } },
+      autoReply: "Recebi seu audio, mas este canal ainda nao aceita mensagens de voz. Pode me enviar por texto?"
+    };
+  }
+
+  try {
+    const details = await fetchWhatsappMediaDetails(audioId);
+    const audioBlob = await downloadWhatsappMedia(details);
+    const transcriptionText = await transcribeAudioBlob(audioBlob, details.mimeType);
+    if (!transcriptionText) {
+      return {
+        messageType: "audio",
+        messageText: "[audio sem transcricao legivel]",
+        transcriptionText: null,
+        mediaId: details.id,
+        mediaMimeType: details.mimeType,
+        mediaSha256: details.sha256,
+        aiPayload: { ...basePayload, audio_processing: { supported: true, transcribed: false } },
+        autoReply: "Recebi seu audio, mas nao consegui entender o conteudo. Pode reenviar um audio mais curto ou escrever por texto?"
+      };
+    }
+
+    return {
+      messageType: "audio",
+      messageText: transcriptionText,
+      transcriptionText,
+      mediaId: details.id,
+      mediaMimeType: details.mimeType,
+      mediaSha256: details.sha256,
+      aiPayload: {
+        ...basePayload,
+        audio_processing: {
+          supported: true,
+          transcribed: true,
+          mime_type: details.mimeType,
+          file_size_bytes: details.fileSizeBytes
+        }
+      },
+      autoReply: null
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "audio_processing_failed";
+    return {
+      messageType: "audio",
+      messageText: "[audio com falha na transcricao]",
+      transcriptionText: null,
+      mediaId: audioId,
+      mediaMimeType: message.audio?.mime_type ?? null,
+      mediaSha256: message.audio?.sha256 ?? null,
+      aiPayload: { ...basePayload, audio_processing: { supported: true, transcribed: false, error: reason } },
+      autoReply: "Recebi seu audio, mas nao consegui transcreve-lo agora. Pode reenviar um audio mais curto ou escrever por texto?"
+    };
+  }
 }
 
 async function verifyMetaSignature(req: Request, rawBody: string): Promise<boolean> {
@@ -2637,9 +2876,8 @@ Deno.serve(async (req) => {
   for (const item of incoming) {
     try {
       const rawPhone = normalizePhone(item.message.from);
-      const rawText = sanitizeWhatsappText(item.message.text?.body ?? "");
       const contactName = resolveClientDisplayName(item.message.contact_name);
-      if (!rawPhone || !rawText) continue;
+      if (!rawPhone) continue;
 
       const channelConfig = await resolveTenantChannelConfig(admin, item.phoneNumberId);
       if (!channelConfig) continue;
@@ -2702,15 +2940,48 @@ Deno.serve(async (req) => {
       const conversationId = conversation?.id;
       if (!conversationId) continue;
 
+      const inboundContent = await resolveInboundMessageContent(item.message, channelConfig);
+      if (!inboundContent) continue;
+
       await admin.from("whatsapp_messages").insert({
         tenant_id: tenantId,
         conversation_id: conversationId,
         client_id: clientId,
         direction: "inbound",
         provider_message_id: item.message.id ?? null,
-        message_text: rawText,
-        ai_payload: {}
+        message_type: inboundContent.messageType,
+        media_id: inboundContent.mediaId,
+        media_mime_type: inboundContent.mediaMimeType,
+        media_sha256: inboundContent.mediaSha256,
+        message_text: inboundContent.messageText,
+        transcription_text: inboundContent.transcriptionText,
+        ai_payload: inboundContent.aiPayload
       });
+
+      if (inboundContent.autoReply) {
+        const fallbackDelivery = await sendWhatsappMessage(
+          rawPhone,
+          inboundContent.autoReply,
+          channelConfig.outboundPhoneNumberId ?? item.phoneNumberId
+        );
+
+        await admin.from("whatsapp_messages").insert({
+          tenant_id: tenantId,
+          conversation_id: conversationId,
+          client_id: clientId,
+          direction: "outbound",
+          provider_message_id: fallbackDelivery.messageId,
+          message_type: "text",
+          message_text: inboundContent.autoReply,
+          ai_payload: {
+            source: "audio-fallback",
+            delivery_error: fallbackDelivery.error
+          }
+        });
+
+        processed += 1;
+        continue;
+      }
 
       const { data: historyRows } = await admin
         .from("whatsapp_messages")
@@ -2732,6 +3003,7 @@ Deno.serve(async (req) => {
       );
       let suggestedOptionsPayload: SuggestedOption[] | null = null;
       let cancellationOptionsPayload: CancellationOption[] | null = null;
+      const rawText = inboundContent.messageText;
 
       const selectedOptionIndex = parseSelectedOptionIndex(rawText);
       let selectedCancellationOption: CancellationOption | null = null;
@@ -3464,6 +3736,7 @@ Deno.serve(async (req) => {
         client_id: clientId,
         direction: "outbound",
         provider_message_id: delivery.messageId,
+        message_type: "text",
         message_text: finalReply,
         ai_payload: {
           model: channelConfig.aiModel ?? Deno.env.get("OPENAI_MODEL") ?? "gpt-4.1-mini",

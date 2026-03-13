@@ -11,6 +11,7 @@ type ChannelRow = {
   phone_number_id: string;
   active: boolean;
   ai_enabled: boolean;
+  audio_enabled: boolean;
   ai_model: string;
   ai_system_prompt: string | null;
   professional_id: string | null;
@@ -24,7 +25,7 @@ type ProfessionalRow = {
 };
 
 const DEFAULT_PROMPT =
-  "Você e a secretaria virtual da Agenda Profissional. Cumprimente o cliente, pergunte preferência de dia e Horário, apresente opções disponiveis e confirme o agendamento somente após validação.";
+  "Você é a secretária virtual da Agenda Profissional. Cumprimente o cliente, pergunte a preferência de dia e horário, apresente opções disponíveis e confirme o agendamento somente após validação.";
 
 export default function WhatsappSettingsPage() {
   const [tenantId, setTenantId] = useState<string | null>(null);
@@ -38,6 +39,7 @@ export default function WhatsappSettingsPage() {
   const [professionalId, setProfessionalId] = useState("");
   const [active, setActive] = useState(true);
   const [aiEnabled, setAiEnabled] = useState(true);
+  const [audioEnabled, setAudioEnabled] = useState(true);
   const [aiModel, setAiModel] = useState("gpt-4.1-mini");
   const [aiPrompt, setAiPrompt] = useState(DEFAULT_PROMPT);
 
@@ -53,7 +55,7 @@ export default function WhatsappSettingsPage() {
       await Promise.all([
         table
           .select(
-            "id, label, whatsapp_number, phone_number_id, active, ai_enabled, ai_model, ai_system_prompt, professional_id, professionals(name)"
+            "id, label, whatsapp_number, phone_number_id, active, ai_enabled, audio_enabled, ai_model, ai_system_prompt, professional_id, professionals(name)"
           )
           .order("created_at", { ascending: true }),
         supabase.from("professionals").select("id, name, active").order("name")
@@ -99,6 +101,7 @@ export default function WhatsappSettingsPage() {
     setProfessionalId("");
     setActive(true);
     setAiEnabled(true);
+    setAudioEnabled(true);
     setAiModel("gpt-4.1-mini");
     setAiPrompt(DEFAULT_PROMPT);
   }
@@ -111,6 +114,7 @@ export default function WhatsappSettingsPage() {
     setProfessionalId(item.professional_id ?? "");
     setActive(item.active);
     setAiEnabled(item.ai_enabled);
+    setAudioEnabled(item.audio_enabled);
     setAiModel(item.ai_model || "gpt-4.1-mini");
     setAiPrompt(item.ai_system_prompt || DEFAULT_PROMPT);
     setError(null);
@@ -124,7 +128,7 @@ export default function WhatsappSettingsPage() {
 
     if (!tenantId) return;
     if (!whatsappNumber.trim() || !phoneNumberId.trim()) {
-      setError("Informe numero WhatsApp e Phone Number ID.");
+      setError("Informe o número WhatsApp e o ID do número no Meta.");
       return;
     }
 
@@ -138,6 +142,7 @@ export default function WhatsappSettingsPage() {
       phone_number_id: phoneNumberId.trim(),
       active,
       ai_enabled: aiEnabled,
+      audio_enabled: audioEnabled,
       ai_model: aiModel.trim() || "gpt-4.1-mini",
       ai_system_prompt: aiPrompt.trim() || null,
       professional_id: professionalId || null,
@@ -174,7 +179,7 @@ export default function WhatsappSettingsPage() {
   if (loading) {
     return (
       <section className="page-stack">
-        <div className="card">Carregando configuracoes do WhatsApp...</div>
+        <div className="card">Carregando configurações do WhatsApp...</div>
       </section>
     );
   }
@@ -183,7 +188,12 @@ export default function WhatsappSettingsPage() {
     <section className="page-stack">
       <div className="card col">
         <h1>WhatsApp + IA</h1>
-        <p>Cadastre o numero oficial do profissional/clinica e habilite o atendimento com IA.</p>
+        <p>Cadastre o número oficial do profissional/clínica e habilite o atendimento automático pelo WhatsApp.</p>
+        <p className="text-muted">
+          {channels.length === 0
+            ? "Primeiro cadastro? Siga as etapas abaixo para conectar o canal sem pular nenhuma configuração importante."
+            : "Use este painel para cadastrar novos canais, revisar o status e ajustar IA, áudio e responsável do número."}
+        </p>
       </div>
 
       <div className="card col">
@@ -195,7 +205,7 @@ export default function WhatsappSettingsPage() {
               <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Ex.: Canal principal" />
             </label>
             <label className="col">
-              Numero WhatsApp
+              Número WhatsApp
               <input
                 value={whatsappNumber}
                 onChange={(e) => setWhatsappNumber(e.target.value)}
@@ -207,11 +217,11 @@ export default function WhatsappSettingsPage() {
 
           <div className="row">
             <label className="col">
-              Phone Number ID (Meta)
+              ID do número no Meta
               <input
                 value={phoneNumberId}
                 onChange={(e) => setPhoneNumberId(e.target.value)}
-                placeholder="ID do numero no Meta WhatsApp Cloud"
+                placeholder="ID do número no Meta WhatsApp Cloud"
                 required
               />
             </label>
@@ -239,6 +249,10 @@ export default function WhatsappSettingsPage() {
               <input type="checkbox" checked={aiEnabled} onChange={(e) => setAiEnabled(e.target.checked)} />
               IA habilitada
             </label>
+            <label className="checkbox-row">
+              <input type="checkbox" checked={audioEnabled} onChange={(e) => setAudioEnabled(e.target.checked)} />
+              Aceitar áudio
+            </label>
           </div>
 
           <div className="row">
@@ -254,7 +268,7 @@ export default function WhatsappSettingsPage() {
               rows={6}
               value={aiPrompt}
               onChange={(e) => setAiPrompt(e.target.value)}
-              placeholder="Instrucoes do atendimento automatico para esse numero."
+              placeholder="Instruções do atendimento automático para esse número."
             />
           </label>
 
@@ -279,11 +293,12 @@ export default function WhatsappSettingsPage() {
             <thead>
               <tr>
                 <th>Canal</th>
-                <th>Numero</th>
-                <th>Phone Number ID</th>
+                <th>Número</th>
+                <th>ID no Meta</th>
                 <th>Profissional</th>
                 <th>Status</th>
                 <th>IA</th>
+                <th>Áudio</th>
                 <th>Ações</th>
               </tr>
             </thead>
@@ -296,6 +311,7 @@ export default function WhatsappSettingsPage() {
                   <td>{item.professionals?.name ?? "Geral"}</td>
                   <td>{item.active ? "Ativo" : "Inativo"}</td>
                   <td>{item.ai_enabled ? "Ligada" : "Desligada"}</td>
+                  <td>{item.audio_enabled ? "Ligado" : "Desligado"}</td>
                   <td>
                     <div className="row actions-row">
                       <button type="button" className="secondary" onClick={() => startEdit(item)}>
@@ -310,7 +326,7 @@ export default function WhatsappSettingsPage() {
               ))}
               {channels.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>Nenhum canal cadastrado.</td>
+                  <td colSpan={8}>Nenhum canal cadastrado.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -319,13 +335,35 @@ export default function WhatsappSettingsPage() {
       </div>
 
       <div className="card col">
-        <h2>Checklist de ativacao</h2>
-        <ol className="whatsapp-checklist">
-          <li>No Meta Developer, pegue o token de acesso e mantenha em `WHATSAPP_ACCESS_TOKEN` da funcao.</li>
-          <li>Cadastre aqui o numero e o `Phone Number ID` exatamente como no Meta.</li>
-          <li>Aponte o webhook para `.../functions/v1/whatsapp-webhook` com seu `WHATSAPP_VERIFY_TOKEN`.</li>
-          <li>Ative a IA no canal para respostas automaticas.</li>
-        </ol>
+        <h2>{channels.length === 0 ? "Primeiro cadastro" : "Como ativar um novo canal"}</h2>
+        <div className="col">
+          <p>
+            <strong>1. Separe os dados do canal</strong>
+          </p>
+          <ul className="whatsapp-checklist">
+            <li>Tenha um número aprovado no WhatsApp Business Cloud.</li>
+            <li>Copie o `ID do número no Meta` e confirme qual número será usado no atendimento.</li>
+          </ul>
+
+          <p>
+            <strong>2. Cadastre o canal nesta tela</strong>
+          </p>
+          <ul className="whatsapp-checklist">
+            <li>Preencha nome do canal, número WhatsApp e `ID do número no Meta` exatamente como aparece no Meta.</li>
+            <li>Escolha um profissional se o número for exclusivo; deixe em geral se o canal atender a organização inteira.</li>
+            <li>Marque `Canal ativo` para habilitar o recebimento.</li>
+            <li>Marque `IA habilitada` para respostas automáticas e `Aceitar áudio` se quiser transcrever mensagens de voz.</li>
+          </ul>
+
+          <p>
+            <strong>3. Conclua a ativacao</strong>
+          </p>
+          <ul className="whatsapp-checklist">
+            <li>Salve o canal aqui no sistema.</li>
+            <li>Envie uma mensagem de teste para validar recebimento, resposta da IA e roteamento do canal.</li>
+            <li>Se o canal não responder após o cadastro, acione o suporte para revisar a integração técnica do ambiente.</li>
+          </ul>
+        </div>
       </div>
     </section>
   );

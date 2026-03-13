@@ -2,23 +2,23 @@ project_id = "agenda-profissional"
 
 [api]
 enabled = true
-port = 55521
+port = 56521
 schemas = ["public", "storage", "graphql_public"]
 extra_search_path = ["public", "extensions"]
 max_rows = 1000
 
 [db]
-port = 55522
-shadow_port = 55520
+port = 56522
+shadow_port = 56520
 major_version = 15
 
 [studio]
 enabled = true
-port = 55523
+port = 56523
 
 [inbucket]
 enabled = true
-port = 55524
+port = 56524
 
 [auth]
 enabled = true
@@ -30,7 +30,7 @@ enable_signup = true
 [edge_runtime]
 enabled = true
 policy = "per_worker"
-inspector_port = 55583
+inspector_port = 56583
 
 [analytics]
 enabled = false

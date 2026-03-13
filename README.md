@@ -69,6 +69,8 @@ npm run supabase:functions:deploy
 - `WHATSAPP_ACCESS_TOKEN`
 - `OPENAI_API_KEY`
 - `WHATSAPP_PHONE_NUMBER_ID` (fallback opcional)
+- `WHATSAPP_AUDIO_ENABLED` (fallback opcional para aceitar audio)
+- `OPENAI_AUDIO_TRANSCRIPTION_MODEL` (opcional, padrao `gpt-4o-mini-transcribe`)
 - `WHATSAPP_DEFAULT_TENANT_ID` (fallback opcional)
 - `WHATSAPP_TENANT_MAP_JSON` (fallback opcional)
 

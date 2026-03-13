@@ -1,0 +1,54 @@
+
+
+> agenda-profissional@0.1.0 dev:web
+> npm --workspace apps/web run dev
+
+
+> @agenda-profissional/web@0.1.0 dev
+> next dev
+
+ ⚠ Port 3000 is in use by process 9996, using available port 3002 instead.
+   ▲ Next.js 15.5.12
+   - Local:        http://localhost:3002
+   - Network:      http://192.168.18.101:3002
+   - Environments: .env.local
+
+ ✓ Starting...
+ ✓ Ready in 6.3s
+ ○ Compiling / ...
+ ✓ Compiled / in 11.3s (746 modules)
+ GET / 200 in 12996ms
+ ○ Compiling /dashboard ...
+ ✓ Compiled /dashboard in 1426ms (779 modules)
+ GET /dashboard 200 in 1799ms
+ GET /dashboard 200 in 93ms
+ ○ Compiling /auditoria-pontualidade ...
+ ✓ Compiled /auditoria-pontualidade in 627ms (772 modules)
+ GET /auditoria-pontualidade 200 in 790ms
+ ○ Compiling /onboarding ...
+ ✓ Compiled /onboarding in 872ms (805 modules)
+ GET /onboarding 200 in 1046ms
+ ○ Compiling /login ...
+ ✓ Compiled /login in 941ms (812 modules)
+ GET /login 200 in 1166ms
+ GET /login 200 in 81ms
+ ✓ Compiled in 3.7s (809 modules)
+ GET /login 200 in 774ms
+ ✓ Compiled in 1257ms (809 modules)
+ GET /login 200 in 463ms
+ GET / 200 in 1274ms
+ GET /dashboard 200 in 177ms
+ GET / 200 in 520ms
+ GET /login 200 in 216ms
+   Reload env: .env.local
+ ✓ Compiled in 1988ms (795 modules)
+ GET /login 200 in 876ms
+   Reload env: .env.local
+ ✓ Compiled in 1765ms (795 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename 'C:\Dev\agenda_profissional\apps\web\.next\cache\webpack\client-development\3.pack.gz_' -> 'C:\Dev\agenda_profissional\apps\web\.next\cache\webpack\client-development\3.pack.gz'
+ ✓ Compiled in 824ms (346 modules)
+ ✓ Compiled in 364ms (346 modules)
+ ✓ Compiled in 312ms (346 modules)
+ ✓ Compiled in 732ms (346 modules)
+ ✓ Compiled in 754ms (346 modules)
+^C^C

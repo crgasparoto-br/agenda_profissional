@@ -26,6 +26,7 @@ class _WhatsappSettingsScreenState extends State<WhatsappSettingsScreen> {
   bool _saving = false;
   bool _active = true;
   bool _aiEnabled = true;
+  bool _audioEnabled = true;
   String? _tenantId;
   String? _editingId;
   String _selectedProfessionalId = '';
@@ -96,7 +97,7 @@ class _WhatsappSettingsScreenState extends State<WhatsappSettingsScreen> {
     final channels = await supabase
         .from('whatsapp_channel_settings')
         .select(
-            'id, label, whatsapp_number, phone_number_id, active, ai_enabled, ai_model, ai_system_prompt, professional_id, professionals(name)')
+            'id, label, whatsapp_number, phone_number_id, active, ai_enabled, audio_enabled, ai_model, ai_system_prompt, professional_id, professionals(name)')
         .eq('tenant_id', _tenantId!)
         .order('created_at');
     final professionals = await supabase
@@ -121,6 +122,7 @@ class _WhatsappSettingsScreenState extends State<WhatsappSettingsScreen> {
       _phoneNumberIdController.clear();
       _active = true;
       _aiEnabled = true;
+      _audioEnabled = true;
       _aiModelController.text = 'gpt-4.1-mini';
       _aiPromptController.text =
           'Você é a secretária virtual da Agenda Profissional. Cumprimente o cliente, peça dia e horário e confirme agendamento somente após validação da disponibilidade.';
@@ -137,6 +139,7 @@ class _WhatsappSettingsScreenState extends State<WhatsappSettingsScreen> {
       _phoneNumberIdController.text = (row['phone_number_id'] as String?) ?? '';
       _active = row['active'] == true;
       _aiEnabled = row['ai_enabled'] == true;
+      _audioEnabled = row['audio_enabled'] == true;
       _aiModelController.text =
           (row['ai_model'] as String?)?.trim().isNotEmpty == true
               ? row['ai_model'] as String
@@ -155,7 +158,7 @@ class _WhatsappSettingsScreenState extends State<WhatsappSettingsScreen> {
     if (normalizedPhone.isEmpty ||
         _phoneNumberIdController.text.trim().isEmpty) {
       setState(
-          () => _error = 'Informe o número de WhatsApp e o Phone Number ID.');
+          () => _error = 'Informe o número de WhatsApp e o ID do número no Meta.');
       return;
     }
 
@@ -177,6 +180,7 @@ class _WhatsappSettingsScreenState extends State<WhatsappSettingsScreen> {
             _selectedProfessionalId.isEmpty ? null : _selectedProfessionalId,
         'active': _active,
         'ai_enabled': _aiEnabled,
+        'audio_enabled': _audioEnabled,
         'ai_model': _aiModelController.text.trim().isEmpty
             ? 'gpt-4.1-mini'
             : _aiModelController.text.trim(),
@@ -256,6 +260,25 @@ class _WhatsappSettingsScreenState extends State<WhatsappSettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Text('WhatsApp + IA',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 8),
+                        Text(
+                          _channels.isEmpty
+                              ? 'Primeiro cadastro? Siga as etapas abaixo para conectar o canal sem pular nenhuma configuração importante.'
+                              : 'Use este painel para cadastrar novos canais e ajustar IA, áudio e responsável do número.',
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
                           _editingId == null ? 'Novo canal' : 'Editar canal',
                           style: Theme.of(context).textTheme.titleMedium,
@@ -286,7 +309,7 @@ class _WhatsappSettingsScreenState extends State<WhatsappSettingsScreen> {
                         TextField(
                           controller: _phoneNumberIdController,
                           decoration: const InputDecoration(
-                              labelText: 'Phone Number ID (Meta)'),
+                              labelText: 'ID do número no Meta'),
                         ),
                         const SizedBox(height: 8),
                         DropdownButtonFormField<String>(
@@ -321,6 +344,13 @@ class _WhatsappSettingsScreenState extends State<WhatsappSettingsScreen> {
                           onChanged: (value) =>
                               setState(() => _aiEnabled = value),
                           title: const Text('IA habilitada'),
+                        ),
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          value: _audioEnabled,
+                          onChanged: (value) =>
+                              setState(() => _audioEnabled = value),
+                          title: const Text('Aceitar áudio'),
                         ),
                         const SizedBox(height: 8),
                         TextField(
@@ -395,7 +425,7 @@ class _WhatsappSettingsScreenState extends State<WhatsappSettingsScreen> {
                               title: Text((row['label'] as String?) ?? '-'),
                               subtitle: Text(
                                 '${_formatPhoneDigits((row['whatsapp_number'] as String?) ?? '')} • ${row['phone_number_id'] ?? '-'}\n'
-                                'Profissional: ${professional?['name'] ?? 'Geral'} • ${row['active'] == true ? 'Ativo' : 'Inativo'} • IA ${row['ai_enabled'] == true ? 'ligada' : 'desligada'}',
+                                'Profissional: ${professional?['name'] ?? 'Geral'} | ${row['active'] == true ? 'Ativo' : 'Inativo'} | IA ${row['ai_enabled'] == true ? 'ligada' : 'desligada'} | Áudio ${row['audio_enabled'] == true ? 'ligado' : 'desligado'}',
                               ),
                               isThreeLine: true,
                               trailing: Row(
@@ -428,15 +458,18 @@ class _WhatsappSettingsScreenState extends State<WhatsappSettingsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Checklist de ativação'),
+                        Text('Como ativar um novo canal'),
                         SizedBox(height: 6),
                         Text(
-                            '1. Configure o token de acesso em WHATSAPP_ACCESS_TOKEN.'),
-                        Text('2. Cadastre número e Phone Number ID do Meta.'),
+                            '1. No Meta, confirme o número e copie o ID do número.'),
                         Text(
-                            '3. Aponte o webhook para /functions/v1/whatsapp-webhook.'),
+                            '2. Cadastre aqui o número, o ID do número no Meta e ative o canal.'),
                         Text(
-                            '4. Ative a IA no canal para respostas automáticas.'),
+                            '3. Ligue IA habilitada e Aceitar áudio se quiser transcrever voz.'),
+                        Text(
+                            '4. Envie uma mensagem de teste para validar o atendimento.'),
+                        Text(
+                            '5. Se o canal não responder após o cadastro, fale com o suporte para revisar a integração técnica.'),
                       ],
                     ),
                   ),
