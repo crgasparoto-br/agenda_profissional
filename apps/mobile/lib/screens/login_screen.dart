@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/auth_service.dart';
+import '../services/biometric_auth_service.dart';
 import '../services/onboarding_service.dart';
 import '../theme/app_theme.dart';
 
@@ -19,13 +20,23 @@ class _LoginScreenState extends State<LoginScreen> {
   final _nameController = TextEditingController();
   final _authService = AuthService();
   final _onboardingService = OnboardingService();
+  final _biometricAuthService = BiometricAuthService();
 
   bool _loading = false;
   bool _isSignUp = false;
   bool _showPassword = false;
   bool _showConfirmPassword = false;
+  bool _biometricAvailable = false;
+  bool _biometricEnabled = false;
+  bool _useBiometricOnThisDevice = false;
   String? _status;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadBiometricState();
+  }
 
   @override
   void dispose() {
@@ -34,6 +45,18 @@ class _LoginScreenState extends State<LoginScreen> {
     _confirmController.dispose();
     _nameController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadBiometricState() async {
+    final available = await _biometricAuthService.isAvailable();
+    final enabled = available && await _biometricAuthService.isEnabled();
+    if (!mounted) return;
+
+    setState(() {
+      _biometricAvailable = available;
+      _biometricEnabled = enabled;
+      _useBiometricOnThisDevice = enabled;
+    });
   }
 
   Future<void> _submit() async {
@@ -77,6 +100,8 @@ class _LoginScreenState extends State<LoginScreen> {
         password: _passwordController.text,
       );
 
+      await _syncBiometricPreference();
+
       final route = await _resolveRouteAfterSignIn(response.user);
       if (!mounted) return;
       Navigator.pushReplacementNamed(context, route);
@@ -117,6 +142,77 @@ class _LoginScreenState extends State<LoginScreen> {
     return '/onboarding';
   }
 
+  Future<void> _syncBiometricPreference() async {
+    if (!_biometricAvailable) return;
+
+    if (_useBiometricOnThisDevice) {
+      await _biometricAuthService.enable(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+      if (!mounted) return;
+      setState(() => _biometricEnabled = true);
+      return;
+    }
+
+    if (_biometricEnabled) {
+      await _biometricAuthService.disable();
+      if (!mounted) return;
+      setState(() => _biometricEnabled = false);
+    }
+  }
+
+  Future<void> _signInWithBiometrics() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+      _status = null;
+    });
+
+    try {
+      final credentials =
+          await _biometricAuthService.authenticateAndLoadCredentials();
+      if (credentials == null) {
+        setState(() {
+          _error =
+              'Nao foi possivel validar sua biometria neste dispositivo. Entre com email e senha.';
+          _useBiometricOnThisDevice = false;
+        });
+        return;
+      }
+
+      _emailController.text = credentials.email;
+      _passwordController.text = credentials.password;
+
+      final response = await _authService.signInWithPassword(
+        email: credentials.email,
+        password: credentials.password,
+      );
+
+      final route = await _resolveRouteAfterSignIn(response.user);
+      if (!mounted) return;
+      Navigator.pushReplacementNamed(context, route);
+    } on AuthException catch (error) {
+      await _biometricAuthService.disable();
+      if (!mounted) return;
+      setState(() {
+        _biometricEnabled = false;
+        _useBiometricOnThisDevice = false;
+        _error =
+            'A biometria foi desativada porque as credenciais salvas nao sao mais validas. Entre novamente com email e senha. (${error.message})';
+      });
+    } catch (_) {
+      setState(() {
+        _error =
+            'Falha ao entrar com biometria. Tente novamente ou use email e senha.';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -142,6 +238,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
+                  Text(
+                    _isSignUp
+                        ? 'Crie sua conta para organizar agenda, clientes e confirmacoes em um so lugar.'
+                        : 'Entre para acessar sua agenda com seguranca e rapidez.',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: const Color(0xFF66717F),
+                        ),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
                   Row(
                     children: [
                       Expanded(
@@ -240,6 +346,89 @@ class _LoginScreenState extends State<LoginScreen> {
                     'Acesso exclusivo para profissionais e equipes de empresas.',
                     style: TextStyle(color: Color(0xFF66717F)),
                   ),
+                  if (!_isSignUp && _biometricAvailable) ...[
+                    const SizedBox(height: 16),
+                    Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius:
+                            BorderRadius.circular(AppTheme.radiusMd),
+                        border: Border.all(color: const Color(0xFFD7DDE4)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                width: 40,
+                                height: 40,
+                                decoration: BoxDecoration(
+                                  color: AppColors.secondary
+                                      .withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Icon(
+                                  Icons.fingerprint_rounded,
+                                  color: AppColors.secondary,
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Biometria no dispositivo',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(
+                                            color: AppColors.primary,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      _biometricEnabled
+                                          ? 'Use sua biometria para entrar sem digitar a senha.'
+                                          : 'Ative para reutilizar com seguranca suas credenciais neste aparelho.',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: const Color(0xFF66717F),
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Switch(
+                                value: _useBiometricOnThisDevice,
+                                onChanged: _loading
+                                    ? null
+                                    : (value) {
+                                        setState(() =>
+                                            _useBiometricOnThisDevice = value);
+                                      },
+                              ),
+                            ],
+                          ),
+                          if (_biometricEnabled) ...[
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: _loading ? null : _signInWithBiometrics,
+                              icon: const Icon(Icons.fingerprint_rounded),
+                              label: const Text('Entrar com biometria'),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 12),
                   ElevatedButton(
                     onPressed: _loading ? null : _submit,

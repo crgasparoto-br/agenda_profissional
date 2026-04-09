@@ -12,6 +12,8 @@ dependencies:
   supabase_flutter: ^2.8.0
   timezone: ^0.10.1
   file_picker: ^8.1.7
+  local_auth: ^2.3.0
+  flutter_secure_storage: ^9.2.2
 
 dev_dependencies:
   flutter_test:
