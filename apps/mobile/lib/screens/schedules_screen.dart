@@ -1,30 +1,79 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../services/tenant_service.dart';
 import '../theme/app_theme.dart';
 
-class _DayWindow {
-  _DayWindow({required this.start, required this.end});
+class _BreakDraft {
+  _BreakDraft({required this.enabled, required this.start, required this.end});
+
+  bool enabled;
+  String start;
+  String end;
+
+  _BreakDraft copyWith({bool? enabled, String? start, String? end}) {
+    return _BreakDraft(
+      enabled: enabled ?? this.enabled,
+      start: start ?? this.start,
+      end: end ?? this.end,
+    );
+  }
+}
+
+class _DayRuleDraft {
+  _DayRuleDraft({
+    required this.start,
+    required this.end,
+    required this.lunchBreak,
+    required this.pauseBreak,
+  });
 
   String start;
   String end;
+  _BreakDraft lunchBreak;
+  _BreakDraft pauseBreak;
+
+  _DayRuleDraft copyWith({
+    String? start,
+    String? end,
+    _BreakDraft? lunchBreak,
+    _BreakDraft? pauseBreak,
+  }) {
+    return _DayRuleDraft(
+      start: start ?? this.start,
+      end: end ?? this.end,
+      lunchBreak: lunchBreak ?? this.lunchBreak,
+      pauseBreak: pauseBreak ?? this.pauseBreak,
+    );
+  }
 }
 
 class _ScheduleDraft {
   _ScheduleDraft({
     required this.timezone,
     required this.workdays,
-    required this.defaultStart,
-    required this.defaultEnd,
+    required this.defaultRule,
     required this.dailyOverrides,
   });
 
   String timezone;
   Set<int> workdays;
-  String defaultStart;
-  String defaultEnd;
-  Map<int, _DayWindow> dailyOverrides;
+  _DayRuleDraft defaultRule;
+  Map<int, _DayRuleDraft> dailyOverrides;
+}
+
+class _DelayPolicyDraft {
+  _DelayPolicyDraft({
+    required this.tempoMaximoAtrasoMin,
+    required this.janelaAvisoAntesConsultaMin,
+    required this.monitorIntervalMin,
+    required this.fallbackWhatsappForProfessional,
+  });
+
+  int tempoMaximoAtrasoMin;
+  int janelaAvisoAntesConsultaMin;
+  int monitorIntervalMin;
+  bool fallbackWhatsappForProfessional;
 }
 
 class _UnavailabilityDraft {
@@ -57,10 +106,11 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
 
   bool _loading = true;
   bool _savingSchedule = false;
+  bool _savingDelayPolicy = false;
   bool _savingUnavailability = false;
+  bool _showOnlyShareable = false;
   String? _tenantId;
   String? _selectedProfessionalId;
-  String? _editingUnavailabilityId;
   String? _error;
   String? _status;
 
@@ -70,6 +120,7 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
 
   List<Map<String, dynamic>> _professionals = const [];
   Map<String, _ScheduleDraft> _draftByProfessional = {};
+  Map<String, _DelayPolicyDraft> _delayPolicyByProfessional = {};
   Map<String, List<Map<String, dynamic>>> _unavailabilityByProfessional = {};
 
   @override
@@ -125,13 +176,36 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
     return '$dd/$mm/$yyyy $hh:$mi';
   }
 
+  _BreakDraft _defaultLunchBreak() =>
+      _BreakDraft(enabled: false, start: '12:00', end: '13:00');
+
+  _BreakDraft _defaultPauseBreak() =>
+      _BreakDraft(enabled: false, start: '16:00', end: '16:15');
+
+  _DayRuleDraft _defaultRule() {
+    return _DayRuleDraft(
+      start: '09:00',
+      end: '18:00',
+      lunchBreak: _defaultLunchBreak(),
+      pauseBreak: _defaultPauseBreak(),
+    );
+  }
+
   _ScheduleDraft _defaultSchedule() {
     return _ScheduleDraft(
       timezone: 'America/Sao_Paulo',
       workdays: {1, 2, 3, 4, 5},
-      defaultStart: '09:00',
-      defaultEnd: '18:00',
+      defaultRule: _defaultRule(),
       dailyOverrides: {},
+    );
+  }
+
+  _DelayPolicyDraft _defaultDelayPolicy() {
+    return _DelayPolicyDraft(
+      tempoMaximoAtrasoMin: 10,
+      janelaAvisoAntesConsultaMin: 90,
+      monitorIntervalMin: 5,
+      fallbackWhatsappForProfessional: false,
     );
   }
 
@@ -163,43 +237,77 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
   Future<void> _load() async {
     if (_tenantId == null) return;
     final supabase = Supabase.instance.client;
-    final professionals = await supabase
-        .from('professionals')
-        .select('id, name, active')
-        .eq('tenant_id', _tenantId!)
-        .order('name');
+    final results = await Future.wait([
+      supabase
+          .from('professionals')
+          .select('id, name, active')
+          .eq('tenant_id', _tenantId!)
+          .order('name'),
+      supabase
+          .from('professional_schedule_settings')
+          .select('professional_id, timezone, workdays, work_hours')
+          .eq('tenant_id', _tenantId!),
+      supabase
+          .from('delay_policies')
+          .select(
+              'professional_id, tempo_maximo_atraso_min, janela_aviso_antes_consulta_min, monitor_interval_min, fallback_whatsapp_for_professional')
+          .eq('tenant_id', _tenantId!),
+      supabase
+          .from('professional_unavailability')
+          .select(
+              'id, professional_id, starts_at, ends_at, reason, share_reason_with_client')
+          .eq('tenant_id', _tenantId!)
+          .order('starts_at'),
+    ]);
 
-    final scheduleRows = await supabase
-        .from('professional_schedule_settings')
-        .select('professional_id, timezone, workdays, work_hours')
-        .eq('tenant_id', _tenantId!);
+    final professionals = List<Map<String, dynamic>>.from(results[0] as List);
+    final scheduleRows = List<Map<String, dynamic>>.from(results[1] as List);
+    final delayRows = List<Map<String, dynamic>>.from(results[2] as List);
+    final unavailabilityRows =
+        List<Map<String, dynamic>>.from(results[3] as List);
 
-    final unavailabilityRows = await supabase
-        .from('professional_unavailability')
-        .select('id, professional_id, starts_at, ends_at, reason, share_reason_with_client')
-        .eq('tenant_id', _tenantId!)
-        .order('starts_at');
-
-    final nextProfessionals = List<Map<String, dynamic>>.from(professionals)
-        .where((row) => row['active'] == true)
-        .toList();
     final scheduleMap = <String, Map<String, dynamic>>{
-      for (final row in List<Map<String, dynamic>>.from(scheduleRows))
-        row['professional_id'] as String: row,
+      for (final row in scheduleRows) row['professional_id'] as String: row,
     };
-    final nextDrafts = <String, _ScheduleDraft>{};
-    for (final prof in nextProfessionals) {
-      final id = prof['id'] as String;
-      final row = scheduleMap[id];
-      if (row == null) {
-        nextDrafts[id] = _defaultSchedule();
-        continue;
+
+    Map<String, dynamic>? tenantDelayPolicy;
+    final delayPolicyMap = <String, Map<String, dynamic>>{};
+    for (final row in delayRows) {
+      final professionalId = row['professional_id'] as String?;
+      if (professionalId == null) {
+        tenantDelayPolicy = row;
+      } else {
+        delayPolicyMap[professionalId] = row;
       }
-      nextDrafts[id] = _parseScheduleRow(row);
+    }
+
+    final nextDrafts = <String, _ScheduleDraft>{};
+    final nextDelayPolicies = <String, _DelayPolicyDraft>{};
+    for (final professional in professionals) {
+      final professionalId = professional['id'] as String;
+      final schedule = scheduleMap[professionalId];
+      nextDrafts[professionalId] =
+          schedule == null ? _defaultSchedule() : _parseScheduleRow(schedule);
+
+      final policy = delayPolicyMap[professionalId] ?? tenantDelayPolicy;
+      final fallback = _defaultDelayPolicy();
+      nextDelayPolicies[professionalId] = _DelayPolicyDraft(
+        tempoMaximoAtrasoMin:
+            (policy?['tempo_maximo_atraso_min'] as num?)?.toInt() ??
+                fallback.tempoMaximoAtrasoMin,
+        janelaAvisoAntesConsultaMin:
+            (policy?['janela_aviso_antes_consulta_min'] as num?)?.toInt() ??
+                fallback.janelaAvisoAntesConsultaMin,
+        monitorIntervalMin:
+            (policy?['monitor_interval_min'] as num?)?.toInt() ??
+                fallback.monitorIntervalMin,
+        fallbackWhatsappForProfessional:
+            policy?['fallback_whatsapp_for_professional'] == true,
+      );
     }
 
     final nextUnavailability = <String, List<Map<String, dynamic>>>{};
-    for (final row in List<Map<String, dynamic>>.from(unavailabilityRows)) {
+    for (final row in unavailabilityRows) {
       final professionalId = row['professional_id'] as String;
       final bucket = nextUnavailability.putIfAbsent(professionalId, () => []);
       bucket.add(row);
@@ -207,12 +315,15 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
 
     if (!mounted) return;
     setState(() {
-      _professionals = nextProfessionals;
+      _professionals = professionals;
       _draftByProfessional = nextDrafts;
+      _delayPolicyByProfessional = nextDelayPolicies;
       _unavailabilityByProfessional = nextUnavailability;
       _selectedProfessionalId = _selectedProfessionalId ??
-          (nextProfessionals.isNotEmpty ? nextProfessionals.first['id'] as String : null);
-      _applyScheduleToForm();
+          (professionals.isNotEmpty
+              ? professionals.first['id'] as String
+              : null);
+      _applyCurrentDraftToForm();
     });
   }
 
@@ -221,10 +332,10 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
         ? row['timezone'] as String
         : 'America/Sao_Paulo';
 
-    final workdaysRaw = row['workdays'];
     final workdays = <int>{};
-    if (workdaysRaw is List) {
-      for (final item in workdaysRaw) {
+    final rawWorkdays = row['workdays'];
+    if (rawWorkdays is List) {
+      for (final item in rawWorkdays) {
         final value = item is int ? item : int.tryParse('$item');
         if (value != null && value >= 0 && value <= 6) {
           workdays.add(value);
@@ -235,24 +346,17 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
       workdays.addAll({1, 2, 3, 4, 5});
     }
 
-    final workHoursRaw = row['work_hours'];
-    String defaultStart = '09:00';
-    String defaultEnd = '18:00';
-    final overrides = <int, _DayWindow>{};
+    final workHours = row['work_hours'];
+    final defaultRule = _parseDayRule(workHours, _defaultRule());
+    final overrides = <int, _DayRuleDraft>{};
 
-    if (workHoursRaw is Map<String, dynamic>) {
-      defaultStart = (workHoursRaw['start'] as String?) ?? defaultStart;
-      defaultEnd = (workHoursRaw['end'] as String?) ?? defaultEnd;
-
-      final overrideRaw = workHoursRaw['daily_overrides'];
-      if (overrideRaw is Map<String, dynamic>) {
-        for (final entry in overrideRaw.entries) {
-          final day = int.tryParse(entry.key);
-          final item = entry.value;
-          if (day == null || day < 0 || day > 6 || item is! Map<String, dynamic>) continue;
-          final start = (item['start'] as String?) ?? defaultStart;
-          final end = (item['end'] as String?) ?? defaultEnd;
-          overrides[day] = _DayWindow(start: start, end: end);
+    if (workHours is Map<String, dynamic>) {
+      final rawOverrides = workHours['daily_overrides'];
+      if (rawOverrides is Map<String, dynamic>) {
+        for (final entry in rawOverrides.entries) {
+          final weekday = int.tryParse(entry.key);
+          if (weekday == null || weekday < 0 || weekday > 6) continue;
+          overrides[weekday] = _parseDayRule(entry.value, defaultRule);
         }
       }
     }
@@ -260,16 +364,35 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
     return _ScheduleDraft(
       timezone: timezone,
       workdays: workdays,
-      defaultStart: defaultStart,
-      defaultEnd: defaultEnd,
+      defaultRule: defaultRule,
       dailyOverrides: overrides,
     );
   }
 
-  void _applyScheduleToForm() {
+  _DayRuleDraft _parseDayRule(dynamic raw, _DayRuleDraft fallback) {
+    if (raw is! Map<String, dynamic>) return fallback;
+    return _DayRuleDraft(
+      start: (raw['start'] as String?) ?? fallback.start,
+      end: (raw['end'] as String?) ?? fallback.end,
+      lunchBreak: _parseBreak(raw['lunch_break'], fallback.lunchBreak),
+      pauseBreak: _parseBreak(raw['snack_break'], fallback.pauseBreak),
+    );
+  }
+
+  _BreakDraft _parseBreak(dynamic raw, _BreakDraft fallback) {
+    if (raw is! Map<String, dynamic>) return fallback;
+    return _BreakDraft(
+      enabled: raw['enabled'] == true,
+      start: (raw['start'] as String?) ?? fallback.start,
+      end: (raw['end'] as String?) ?? fallback.end,
+    );
+  }
+
+  void _applyCurrentDraftToForm() {
     final draft = _currentDraft;
     if (draft == null) return;
     _timezoneController.text = draft.timezone;
+    _resetUnavailabilityForm();
   }
 
   _ScheduleDraft? get _currentDraft {
@@ -277,9 +400,65 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
     return _draftByProfessional[_selectedProfessionalId!];
   }
 
+  _DelayPolicyDraft? get _currentDelayPolicy {
+    if (_selectedProfessionalId == null) return null;
+    return _delayPolicyByProfessional[_selectedProfessionalId!];
+  }
+
   List<Map<String, dynamic>> get _currentUnavailability {
     if (_selectedProfessionalId == null) return const [];
-    return _unavailabilityByProfessional[_selectedProfessionalId!] ?? const [];
+    final items =
+        _unavailabilityByProfessional[_selectedProfessionalId!] ?? const [];
+    if (!_showOnlyShareable) return items;
+    return items
+        .where((item) => item['share_reason_with_client'] == true)
+        .toList();
+  }
+
+  int? _toMinutes(String value) {
+    final parts = value.split(':');
+    if (parts.length != 2) return null;
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) return null;
+    return hour * 60 + minute;
+  }
+
+  String? _validateDayRule(_DayRuleDraft rule, String label) {
+    final start = _toMinutes(rule.start);
+    final end = _toMinutes(rule.end);
+    if (start == null || end == null || start >= end) {
+      return 'Janela de atendimento inválida em $label.';
+    }
+
+    String? validateBreak(_BreakDraft draft, String breakLabel) {
+      if (!draft.enabled) return null;
+      final breakStart = _toMinutes(draft.start);
+      final breakEnd = _toMinutes(draft.end);
+      if (breakStart == null || breakEnd == null || breakStart >= breakEnd) {
+        return '$breakLabel inválido em $label.';
+      }
+      if (breakStart < start || breakEnd > end) {
+        return '$breakLabel precisa ficar dentro do horário de atendimento em $label.';
+      }
+      return null;
+    }
+
+    final lunchError = validateBreak(rule.lunchBreak, 'Intervalo de almoço');
+    if (lunchError != null) return lunchError;
+    final pauseError = validateBreak(rule.pauseBreak, 'Pausa');
+    if (pauseError != null) return pauseError;
+
+    if (rule.lunchBreak.enabled && rule.pauseBreak.enabled) {
+      final lunchStart = _toMinutes(rule.lunchBreak.start)!;
+      final lunchEnd = _toMinutes(rule.lunchBreak.end)!;
+      final pauseStart = _toMinutes(rule.pauseBreak.start)!;
+      final pauseEnd = _toMinutes(rule.pauseBreak.end)!;
+      if (lunchStart < pauseEnd && pauseStart < lunchEnd) {
+        return 'Almoço e pausa não podem se sobrepor em $label.';
+      }
+    }
+    return null;
   }
 
   Future<void> _pickTime({
@@ -315,61 +494,6 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
     return DateTime(date.year, date.month, date.day, time.hour, time.minute);
   }
 
-  Future<void> _saveSchedule() async {
-    if (_tenantId == null || _selectedProfessionalId == null) return;
-    final draft = _currentDraft;
-    if (draft == null) return;
-
-    setState(() {
-      _savingSchedule = true;
-      _error = null;
-      _status = null;
-    });
-
-    try {
-      final payload = {
-        'tenant_id': _tenantId,
-        'professional_id': _selectedProfessionalId,
-        'timezone': _timezoneController.text.trim().isEmpty
-            ? 'America/Sao_Paulo'
-            : _timezoneController.text.trim(),
-        'workdays': draft.workdays.toList()..sort(),
-        'work_hours': {
-          'start': draft.defaultStart,
-          'end': draft.defaultEnd,
-          'daily_overrides': {
-            for (final entry in draft.dailyOverrides.entries)
-              '${entry.key}': {
-                'start': entry.value.start,
-                'end': entry.value.end,
-              }
-          }
-        },
-      };
-
-      await Supabase.instance.client.from('professional_schedule_settings').upsert(
-            payload,
-            onConflict: 'professional_id',
-          );
-
-      setState(() => _status = 'Horário salvo com sucesso.');
-      await _load();
-    } catch (error) {
-      setState(() => _error = 'Erro ao salvar horário: $error');
-    } finally {
-      if (mounted) setState(() => _savingSchedule = false);
-    }
-  }
-
-  void _setDefaultTime({String? start, String? end}) {
-    final draft = _currentDraft;
-    if (draft == null) return;
-    setState(() {
-      if (start != null) draft.defaultStart = start;
-      if (end != null) draft.defaultEnd = end;
-    });
-  }
-
   void _toggleWorkday(int weekday, bool selected) {
     final draft = _currentDraft;
     if (draft == null) return;
@@ -383,33 +507,209 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
     });
   }
 
+  void _setTimezone(String value) {
+    final draft = _currentDraft;
+    if (draft == null) return;
+    setState(() => draft.timezone = value);
+  }
+
+  void _setRuleTime(_DayRuleDraft rule, {String? start, String? end}) {
+    setState(() {
+      if (start != null) rule.start = start;
+      if (end != null) rule.end = end;
+    });
+  }
+
+  void _setBreakValue(_BreakDraft draft,
+      {bool? enabled, String? start, String? end}) {
+    setState(() {
+      if (enabled != null) draft.enabled = enabled;
+      if (start != null) draft.start = start;
+      if (end != null) draft.end = end;
+    });
+  }
+
   void _toggleOverride(int weekday, bool selected) {
     final draft = _currentDraft;
     if (draft == null) return;
     setState(() {
       if (selected) {
-        draft.dailyOverrides[weekday] =
-            _DayWindow(start: draft.defaultStart, end: draft.defaultEnd);
+        final source = draft.defaultRule;
+        draft.dailyOverrides[weekday] = _DayRuleDraft(
+          start: source.start,
+          end: source.end,
+          lunchBreak: source.lunchBreak.copyWith(),
+          pauseBreak: source.pauseBreak.copyWith(),
+        );
       } else {
         draft.dailyOverrides.remove(weekday);
       }
     });
   }
 
-  void _setOverrideTime(int weekday, {String? start, String? end}) {
-    final draft = _currentDraft;
-    final override = draft?.dailyOverrides[weekday];
-    if (override == null) return;
+  void _setDelayPolicyField({
+    int? tempoMaximoAtrasoMin,
+    int? janelaAvisoAntesConsultaMin,
+    int? monitorIntervalMin,
+    bool? fallbackWhatsappForProfessional,
+  }) {
+    final policy = _currentDelayPolicy;
+    if (policy == null) return;
     setState(() {
-      if (start != null) override.start = start;
-      if (end != null) override.end = end;
+      if (tempoMaximoAtrasoMin != null) {
+        policy.tempoMaximoAtrasoMin = tempoMaximoAtrasoMin;
+      }
+      if (janelaAvisoAntesConsultaMin != null) {
+        policy.janelaAvisoAntesConsultaMin = janelaAvisoAntesConsultaMin;
+      }
+      if (monitorIntervalMin != null) {
+        policy.monitorIntervalMin = monitorIntervalMin;
+      }
+      if (fallbackWhatsappForProfessional != null) {
+        policy.fallbackWhatsappForProfessional =
+            fallbackWhatsappForProfessional;
+      }
     });
+  }
+
+  Future<void> _saveSchedule() async {
+    if (_tenantId == null || _selectedProfessionalId == null) return;
+    final draft = _currentDraft;
+    if (draft == null) return;
+
+    final timezone = _timezoneController.text.trim().isEmpty
+        ? 'America/Sao_Paulo'
+        : _timezoneController.text.trim();
+    draft.timezone = timezone;
+
+    final defaultError = _validateDayRule(draft.defaultRule, 'horário padrão');
+    if (defaultError != null) {
+      setState(() => _error = defaultError);
+      return;
+    }
+
+    for (final entry in draft.dailyOverrides.entries) {
+      final error = _validateDayRule(entry.value, _weekdayLabel(entry.key));
+      if (error != null) {
+        setState(() => _error = error);
+        return;
+      }
+    }
+
+    setState(() {
+      _savingSchedule = true;
+      _error = null;
+      _status = null;
+    });
+
+    try {
+      final payload = {
+        'tenant_id': _tenantId,
+        'professional_id': _selectedProfessionalId,
+        'timezone': timezone,
+        'workdays': draft.workdays.toList()..sort(),
+        'work_hours': {
+          'start': draft.defaultRule.start,
+          'end': draft.defaultRule.end,
+          'lunch_break': {
+            'enabled': draft.defaultRule.lunchBreak.enabled,
+            'start': draft.defaultRule.lunchBreak.start,
+            'end': draft.defaultRule.lunchBreak.end,
+          },
+          'snack_break': {
+            'enabled': draft.defaultRule.pauseBreak.enabled,
+            'start': draft.defaultRule.pauseBreak.start,
+            'end': draft.defaultRule.pauseBreak.end,
+          },
+          'daily_overrides': {
+            for (final entry in draft.dailyOverrides.entries)
+              '${entry.key}': {
+                'start': entry.value.start,
+                'end': entry.value.end,
+                'lunch_break': {
+                  'enabled': entry.value.lunchBreak.enabled,
+                  'start': entry.value.lunchBreak.start,
+                  'end': entry.value.lunchBreak.end,
+                },
+                'snack_break': {
+                  'enabled': entry.value.pauseBreak.enabled,
+                  'start': entry.value.pauseBreak.start,
+                  'end': entry.value.pauseBreak.end,
+                },
+              }
+          },
+        },
+      };
+
+      await Supabase.instance.client
+          .from('professional_schedule_settings')
+          .upsert(
+            payload,
+            onConflict: 'tenant_id,professional_id',
+          );
+
+      setState(() => _status = 'Horários salvos com sucesso.');
+      await _load();
+    } catch (error) {
+      setState(() => _error = 'Erro ao salvar horários: $error');
+    } finally {
+      if (mounted) setState(() => _savingSchedule = false);
+    }
+  }
+
+  Future<void> _saveDelayPolicy() async {
+    if (_tenantId == null || _selectedProfessionalId == null) return;
+    final policy = _currentDelayPolicy;
+    if (policy == null) return;
+
+    if (policy.tempoMaximoAtrasoMin < 0 || policy.tempoMaximoAtrasoMin > 180) {
+      setState(() =>
+          _error = 'Tempo máximo de atraso deve ficar entre 0 e 180 minutos.');
+      return;
+    }
+    if (policy.janelaAvisoAntesConsultaMin < 5 ||
+        policy.janelaAvisoAntesConsultaMin > 1440) {
+      setState(
+          () => _error = 'Janela de aviso deve ficar entre 5 e 1440 minutos.');
+      return;
+    }
+    if (policy.monitorIntervalMin < 1 || policy.monitorIntervalMin > 60) {
+      setState(() =>
+          _error = 'Intervalo do monitor deve ficar entre 1 e 60 minutos.');
+      return;
+    }
+
+    setState(() {
+      _savingDelayPolicy = true;
+      _error = null;
+      _status = null;
+    });
+
+    try {
+      await Supabase.instance.client.from('delay_policies').upsert(
+        {
+          'tenant_id': _tenantId,
+          'professional_id': _selectedProfessionalId,
+          'tempo_maximo_atraso_min': policy.tempoMaximoAtrasoMin,
+          'janela_aviso_antes_consulta_min': policy.janelaAvisoAntesConsultaMin,
+          'monitor_interval_min': policy.monitorIntervalMin,
+          'fallback_whatsapp_for_professional':
+              policy.fallbackWhatsappForProfessional,
+        },
+        onConflict: 'tenant_id,professional_id',
+      );
+      setState(() => _status = 'Política de atraso salva com sucesso.');
+      await _load();
+    } catch (error) {
+      setState(() => _error = 'Erro ao salvar política de atraso: $error');
+    } finally {
+      if (mounted) setState(() => _savingDelayPolicy = false);
+    }
   }
 
   void _resetUnavailabilityForm() {
     final draft = _emptyUnavailabilityDraft();
     setState(() {
-      _editingUnavailabilityId = null;
       _unavailabilityStart = draft.startsAt;
       _unavailabilityEnd = draft.endsAt;
       _shareReasonWithClient = draft.shareReasonWithClient;
@@ -422,13 +722,15 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
     final endsAt = DateTime.tryParse(row['ends_at'] as String? ?? '');
     if (startsAt == null || endsAt == null) return;
     setState(() {
-      _editingUnavailabilityId = row['id'] as String;
       _unavailabilityStart = startsAt.toLocal();
       _unavailabilityEnd = endsAt.toLocal();
       _shareReasonWithClient = row['share_reason_with_client'] == true;
       _reasonController.text = (row['reason'] as String?) ?? '';
+      _currentUnavailabilityDraftId = row['id'] as String?;
     });
   }
+
+  String? _currentUnavailabilityDraftId;
 
   Future<void> _saveUnavailability() async {
     if (_tenantId == null || _selectedProfessionalId == null) return;
@@ -449,21 +751,26 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
         'professional_id': _selectedProfessionalId,
         'starts_at': _unavailabilityStart.toUtc().toIso8601String(),
         'ends_at': _unavailabilityEnd.toUtc().toIso8601String(),
-        'reason': _reasonController.text.trim().isEmpty ? null : _reasonController.text.trim(),
+        'reason': _reasonController.text.trim().isEmpty
+            ? null
+            : _reasonController.text.trim(),
         'share_reason_with_client': _shareReasonWithClient,
       };
 
-      if (_editingUnavailabilityId == null) {
-        await Supabase.instance.client.from('professional_unavailability').insert(payload);
+      if (_currentUnavailabilityDraftId == null) {
+        await Supabase.instance.client
+            .from('professional_unavailability')
+            .insert(payload);
         setState(() => _status = 'Ausência cadastrada com sucesso.');
       } else {
         await Supabase.instance.client
             .from('professional_unavailability')
             .update(payload)
-            .eq('id', _editingUnavailabilityId!);
+            .eq('id', _currentUnavailabilityDraftId!);
         setState(() => _status = 'Ausência atualizada com sucesso.');
       }
 
+      _currentUnavailabilityDraftId = null;
       _resetUnavailabilityForm();
       await _load();
     } catch (error) {
@@ -480,19 +787,27 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
         title: const Text('Excluir ausência'),
         content: const Text('Deseja remover este período de ausência?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Voltar')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Excluir')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Voltar')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Excluir')),
         ],
       ),
     );
     if (confirmed != true) return;
 
     try {
-      await Supabase.instance.client.from('professional_unavailability').delete().eq('id', id);
-      setState(() => _status = 'Ausência removida com sucesso.');
-      if (_editingUnavailabilityId == id) {
+      await Supabase.instance.client
+          .from('professional_unavailability')
+          .delete()
+          .eq('id', id);
+      if (_currentUnavailabilityDraftId == id) {
+        _currentUnavailabilityDraftId = null;
         _resetUnavailabilityForm();
       }
+      setState(() => _status = 'Ausência removida com sucesso.');
       await _load();
     } catch (error) {
       setState(() => _error = 'Erro ao remover ausência: $error');
@@ -506,19 +821,109 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
           .update({'share_reason_with_client': value}).eq('id', id);
       await _load();
     } catch (error) {
-      setState(() => _error = 'Erro ao atualizar flag da ausência: $error');
+      setState(
+          () => _error = 'Erro ao atualizar visibilidade da ausência: $error');
     }
+  }
+
+  Widget _buildBreakEditor(String title, _BreakDraft draft) {
+    return Card(
+      margin: const EdgeInsets.only(top: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(title),
+              value: draft.enabled,
+              onChanged: (value) => _setBreakValue(draft, enabled: value),
+            ),
+            if (draft.enabled)
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => _pickTime(
+                        current: draft.start,
+                        onPicked: (value) =>
+                            _setBreakValue(draft, start: value),
+                      ),
+                      child: Text('Início: ${draft.start}'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => _pickTime(
+                        current: draft.end,
+                        onPicked: (value) => _setBreakValue(draft, end: value),
+                      ),
+                      child: Text('Fim: ${draft.end}'),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDayRuleEditor(
+      {required String title, required _DayRuleDraft rule}) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _pickTime(
+                      current: rule.start,
+                      onPicked: (value) => _setRuleTime(rule, start: value),
+                    ),
+                    child: Text('Início: ${rule.start}'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _pickTime(
+                      current: rule.end,
+                      onPicked: (value) => _setRuleTime(rule, end: value),
+                    ),
+                    child: Text('Fim: ${rule.end}'),
+                  ),
+                ),
+              ],
+            ),
+            _buildBreakEditor('Intervalo de almoço', rule.lunchBreak),
+            _buildBreakEditor('Pausa rápida', rule.pauseBreak),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final draft = _currentDraft;
+    final delayPolicy = _currentDelayPolicy;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Horários')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _professionals.isEmpty
-              ? const Center(child: Text('Nenhum profissional ativo cadastrado.'))
+              ? const Center(child: Text('Nenhum profissional cadastrado.'))
               : ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
@@ -527,19 +932,24 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
                         padding: const EdgeInsets.all(12),
                         child: DropdownButtonFormField<String>(
                           initialValue: _selectedProfessionalId,
-                          decoration: const InputDecoration(labelText: 'Profissional'),
+                          decoration:
+                              const InputDecoration(labelText: 'Profissional'),
                           items: _professionals
                               .map(
                                 (row) => DropdownMenuItem<String>(
                                   value: row['id'] as String,
-                                  child: Text((row['name'] as String?) ?? '-'),
+                                  child: Text(
+                                    row['active'] == true
+                                        ? (row['name'] as String? ?? '-')
+                                        : '${(row['name'] as String? ?? '-')} (inativo)',
+                                  ),
                                 ),
                               )
                               .toList(),
                           onChanged: (value) {
                             setState(() {
                               _selectedProfessionalId = value;
-                              _applyScheduleToForm();
+                              _applyCurrentDraftToForm();
                             });
                           },
                         ),
@@ -555,7 +965,11 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
                           children: [
                             TextField(
                               controller: _timezoneController,
-                              decoration: const InputDecoration(labelText: 'Timezone'),
+                              onChanged: _setTimezone,
+                              decoration: const InputDecoration(
+                                labelText: 'Timezone',
+                                helperText: 'Exemplo: America/Sao_Paulo',
+                              ),
                             ),
                             const SizedBox(height: 12),
                             const Align(
@@ -565,46 +979,31 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
                             const SizedBox(height: 8),
                             Wrap(
                               spacing: 8,
+                              runSpacing: 8,
                               children: List.generate(
                                 7,
                                 (day) => FilterChip(
                                   label: Text(_weekdayLabel(day)),
                                   selected: draft.workdays.contains(day),
-                                  onSelected: (selected) => _toggleWorkday(day, selected),
+                                  onSelected: (selected) =>
+                                      _toggleWorkday(day, selected),
                                 ),
                               ),
                             ),
                             const SizedBox(height: 12),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: () => _pickTime(
-                                      current: draft.defaultStart,
-                                      onPicked: (value) => _setDefaultTime(start: value),
-                                    ),
-                                    child: Text('Início: ${draft.defaultStart}'),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: () => _pickTime(
-                                      current: draft.defaultEnd,
-                                      onPicked: (value) => _setDefaultTime(end: value),
-                                    ),
-                                    child: Text('Fim: ${draft.defaultEnd}'),
-                                  ),
-                                ),
-                              ],
+                            _buildDayRuleEditor(
+                              title: 'Horário padrão',
+                              rule: draft.defaultRule,
                             ),
-                            const SizedBox(height: 12),
                             Align(
                               alignment: Alignment.centerRight,
                               child: ElevatedButton(
-                                onPressed: _savingSchedule ? null : _saveSchedule,
+                                onPressed:
+                                    _savingSchedule ? null : _saveSchedule,
                                 child: Text(
-                                  _savingSchedule ? 'Salvando...' : 'Salvar horários',
+                                  _savingSchedule
+                                      ? 'Salvando...'
+                                      : 'Salvar horários',
                                 ),
                               ),
                             ),
@@ -617,50 +1016,104 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
                         child: ExpansionTile(
                           title: const Text('Exceções por dia'),
                           childrenPadding: const EdgeInsets.all(12),
-                          children: (draft.workdays.toList()..sort()).map((weekday) {
+                          children:
+                              (draft.workdays.toList()..sort()).map((weekday) {
                             final override = draft.dailyOverrides[weekday];
-                            return Card(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              child: Padding(
-                                padding: const EdgeInsets.all(10),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    SwitchListTile(
-                                      contentPadding: EdgeInsets.zero,
-                                      title: Text('Usar exceção em ${_weekdayLabel(weekday)}'),
-                                      value: override != null,
-                                      onChanged: (value) => _toggleOverride(weekday, value),
-                                    ),
-                                    if (override != null)
-                                      Row(
-                                        children: [
-                                          Expanded(
-                                            child: OutlinedButton(
-                                              onPressed: () => _pickTime(
-                                                current: override.start,
-                                                onPicked: (value) => _setOverrideTime(weekday, start: value),
-                                              ),
-                                              child: Text('Início: ${override.start}'),
-                                            ),
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: OutlinedButton(
-                                              onPressed: () => _pickTime(
-                                                current: override.end,
-                                                onPicked: (value) => _setOverrideTime(weekday, end: value),
-                                              ),
-                                              child: Text('Fim: ${override.end}'),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                  ],
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SwitchListTile(
+                                  contentPadding: EdgeInsets.zero,
+                                  title: Text(
+                                      'Usar regra específica em ${_weekdayLabel(weekday)}'),
+                                  value: override != null,
+                                  onChanged: (value) =>
+                                      _toggleOverride(weekday, value),
                                 ),
-                              ),
+                                if (override != null)
+                                  _buildDayRuleEditor(
+                                    title:
+                                        'Configuração de ${_weekdayLabel(weekday)}',
+                                    rule: override,
+                                  ),
+                              ],
                             );
                           }).toList(),
+                        ),
+                      ),
+                    const SizedBox(height: 8),
+                    if (delayPolicy != null)
+                      Card(
+                        child: ExpansionTile(
+                          title: const Text('Política de atraso'),
+                          childrenPadding: const EdgeInsets.all(12),
+                          children: [
+                            TextFormField(
+                              initialValue:
+                                  delayPolicy.tempoMaximoAtrasoMin.toString(),
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Tempo máximo de atraso (minutos)',
+                              ),
+                              onChanged: (value) => _setDelayPolicyField(
+                                tempoMaximoAtrasoMin: int.tryParse(value) ??
+                                    delayPolicy.tempoMaximoAtrasoMin,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextFormField(
+                              initialValue: delayPolicy
+                                  .janelaAvisoAntesConsultaMin
+                                  .toString(),
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText:
+                                    'Janela de aviso antes da consulta (minutos)',
+                              ),
+                              onChanged: (value) => _setDelayPolicyField(
+                                janelaAvisoAntesConsultaMin:
+                                    int.tryParse(value) ??
+                                        delayPolicy.janelaAvisoAntesConsultaMin,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextFormField(
+                              initialValue:
+                                  delayPolicy.monitorIntervalMin.toString(),
+                              keyboardType: TextInputType.number,
+                              decoration: const InputDecoration(
+                                labelText: 'Intervalo do monitor (minutos)',
+                              ),
+                              onChanged: (value) => _setDelayPolicyField(
+                                monitorIntervalMin: int.tryParse(value) ??
+                                    delayPolicy.monitorIntervalMin,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SwitchListTile(
+                              contentPadding: EdgeInsets.zero,
+                              value:
+                                  delayPolicy.fallbackWhatsappForProfessional,
+                              onChanged: (value) => _setDelayPolicyField(
+                                fallbackWhatsappForProfessional: value,
+                              ),
+                              title: const Text(
+                                  'Usar WhatsApp como fallback do profissional'),
+                            ),
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: ElevatedButton(
+                                onPressed: _savingDelayPolicy
+                                    ? null
+                                    : _saveDelayPolicy,
+                                child: Text(
+                                  _savingDelayPolicy
+                                      ? 'Salvando...'
+                                      : 'Salvar política de atraso',
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     const SizedBox(height: 8),
@@ -673,64 +1126,58 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
                           Align(
                             alignment: Alignment.centerLeft,
                             child: Text(
-                              'Bloqueia disponibilidade em dias futuros.',
+                              'Bloqueia a disponibilidade do profissional em períodos específicos.',
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ),
                           const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: () async {
-                                    final picked = await _pickDateTime(_unavailabilityStart);
-                                    if (picked == null) return;
-                                    setState(() => _unavailabilityStart = picked);
-                                  },
-                                  child: Text('Início: ${_formatDateTime(_unavailabilityStart)}'),
-                                ),
-                              ),
-                            ],
+                          OutlinedButton(
+                            onPressed: () async {
+                              final picked =
+                                  await _pickDateTime(_unavailabilityStart);
+                              if (picked == null) return;
+                              setState(() => _unavailabilityStart = picked);
+                            },
+                            child: Text(
+                                'Início: ${_formatDateTime(_unavailabilityStart)}'),
                           ),
                           const SizedBox(height: 8),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: () async {
-                                    final picked = await _pickDateTime(_unavailabilityEnd);
-                                    if (picked == null) return;
-                                    setState(() => _unavailabilityEnd = picked);
-                                  },
-                                  child: Text('Fim: ${_formatDateTime(_unavailabilityEnd)}'),
-                                ),
-                              ),
-                            ],
+                          OutlinedButton(
+                            onPressed: () async {
+                              final picked =
+                                  await _pickDateTime(_unavailabilityEnd);
+                              if (picked == null) return;
+                              setState(() => _unavailabilityEnd = picked);
+                            },
+                            child: Text(
+                                'Fim: ${_formatDateTime(_unavailabilityEnd)}'),
                           ),
                           const SizedBox(height: 8),
                           TextField(
                             controller: _reasonController,
-                            decoration: const InputDecoration(labelText: 'Motivo (opcional)'),
+                            decoration: const InputDecoration(
+                                labelText: 'Motivo (opcional)'),
                           ),
                           const SizedBox(height: 8),
                           SwitchListTile(
                             contentPadding: EdgeInsets.zero,
                             value: _shareReasonWithClient,
-                            onChanged: (value) => setState(() => _shareReasonWithClient = value),
+                            onChanged: (value) =>
+                                setState(() => _shareReasonWithClient = value),
                             title: const Text(
-                              'Permitir que o bot informe o motivo da ausência ao cliente',
-                            ),
+                                'Permitir que o cliente veja o motivo'),
                           ),
-                          const SizedBox(height: 8),
                           Row(
                             children: [
                               Expanded(
                                 child: ElevatedButton(
-                                  onPressed: _savingUnavailability ? null : _saveUnavailability,
+                                  onPressed: _savingUnavailability
+                                      ? null
+                                      : _saveUnavailability,
                                   child: Text(
                                     _savingUnavailability
                                         ? 'Salvando...'
-                                        : _editingUnavailabilityId == null
+                                        : _currentUnavailabilityDraftId == null
                                             ? 'Adicionar ausência'
                                             : 'Atualizar ausência',
                                   ),
@@ -738,10 +1185,26 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
                               ),
                               const SizedBox(width: 8),
                               OutlinedButton(
-                                onPressed: _savingUnavailability ? null : _resetUnavailabilityForm,
-                                child: const Text('Limpar formulário'),
+                                onPressed: _savingUnavailability
+                                    ? null
+                                    : () {
+                                        setState(() =>
+                                            _currentUnavailabilityDraftId =
+                                                null);
+                                        _resetUnavailabilityForm();
+                                      },
+                                child: const Text('Limpar'),
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 8),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            value: _showOnlyShareable,
+                            onChanged: (value) =>
+                                setState(() => _showOnlyShareable = value),
+                            title: const Text(
+                                'Mostrar apenas ausências visíveis ao cliente'),
                           ),
                           const SizedBox(height: 8),
                           if (_currentUnavailability.isEmpty)
@@ -749,58 +1212,82 @@ class _SchedulesScreenState extends State<SchedulesScreen> {
                               alignment: Alignment.centerLeft,
                               child: Text('Nenhuma ausência cadastrada.'),
                             ),
-                          ..._currentUnavailability.map(
-                            (row) {
-                              final startsAt = DateTime.tryParse(row['starts_at'] as String? ?? '');
-                              final endsAt = DateTime.tryParse(row['ends_at'] as String? ?? '');
-                              final reason = (row['reason'] as String?) ?? '-';
-                              final shareReason = row['share_reason_with_client'] == true;
-                              return ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                title: Text(
-                                  startsAt == null || endsAt == null
-                                      ? 'Período inválido'
-                                      : '${_formatDateTime(startsAt.toLocal())} até ${_formatDateTime(endsAt.toLocal())}',
-                                ),
-                                subtitle: Text('Motivo: $reason'),
-                                trailing: Row(
-                                  mainAxisSize: MainAxisSize.min,
+                          ..._currentUnavailability.map((row) {
+                            final startsAt = DateTime.tryParse(
+                                row['starts_at'] as String? ?? '');
+                            final endsAt = DateTime.tryParse(
+                                row['ends_at'] as String? ?? '');
+                            final shareReason =
+                                row['share_reason_with_client'] == true;
+                            final reason = (row['reason'] as String?)?.trim();
+                            return Card(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              child: Padding(
+                                padding: const EdgeInsets.all(10),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Tooltip(
-                                      message: 'Bot pode informar motivo',
-                                      child: Checkbox(
-                                        value: shareReason,
-                                        onChanged: (value) {
-                                          if (value == null) return;
-                                          _setShareReason(row['id'] as String, value);
-                                        },
-                                      ),
+                                    Text(
+                                      startsAt == null || endsAt == null
+                                          ? 'Período inválido'
+                                          : '${_formatDateTime(startsAt.toLocal())} até ${_formatDateTime(endsAt.toLocal())}',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600),
                                     ),
-                                    IconButton(
-                                      onPressed: () => _startEditUnavailability(row),
-                                      icon: const Icon(Icons.edit_outlined),
-                                      tooltip: 'Editar',
-                                    ),
-                                    IconButton(
-                                      onPressed: () => _deleteUnavailability(row['id'] as String),
-                                      icon: const Icon(Icons.delete_outline),
-                                      tooltip: 'Excluir',
+                                    const SizedBox(height: 4),
+                                    Text(
+                                        'Motivo: ${reason == null || reason.isEmpty ? '-' : reason}'),
+                                    const SizedBox(height: 8),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      crossAxisAlignment:
+                                          WrapCrossAlignment.center,
+                                      children: [
+                                        FilterChip(
+                                          label: Text(
+                                            shareReason
+                                                ? 'Visível ao cliente'
+                                                : 'Oculto ao cliente',
+                                          ),
+                                          selected: shareReason,
+                                          onSelected: (value) =>
+                                              _setShareReason(
+                                                  row['id'] as String, value),
+                                        ),
+                                        OutlinedButton.icon(
+                                          onPressed: () =>
+                                              _startEditUnavailability(row),
+                                          icon: const Icon(Icons.edit_outlined),
+                                          label: const Text('Editar'),
+                                        ),
+                                        OutlinedButton.icon(
+                                          onPressed: () =>
+                                              _deleteUnavailability(
+                                                  row['id'] as String),
+                                          icon:
+                                              const Icon(Icons.delete_outline),
+                                          label: const Text('Excluir'),
+                                        ),
+                                      ],
                                     ),
                                   ],
                                 ),
-                              );
-                            },
-                          ),
+                              ),
+                            );
+                          }),
                         ],
                       ),
                     ),
                     if (_error != null) ...[
                       const SizedBox(height: 8),
-                      Text(_error!, style: const TextStyle(color: AppColors.danger)),
+                      Text(_error!,
+                          style: const TextStyle(color: AppColors.danger)),
                     ],
                     if (_status != null) ...[
                       const SizedBox(height: 8),
-                      Text(_status!, style: const TextStyle(color: AppColors.secondary)),
+                      Text(_status!,
+                          style: const TextStyle(color: AppColors.secondary)),
                     ],
                   ],
                 ),

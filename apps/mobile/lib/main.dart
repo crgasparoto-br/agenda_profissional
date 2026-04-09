@@ -158,7 +158,7 @@ class _BootstrapErrorScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Erro de inicializacao')),
+      appBar: AppBar(title: const Text('Erro de inicialização')),
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Card(
@@ -169,7 +169,7 @@ class _BootstrapErrorScreen extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
-                  'Nao foi possivel carregar o aplicativo.',
+                  'Não foi possível carregar o aplicativo.',
                   style: TextStyle(fontWeight: FontWeight.w600),
                 ),
                 const SizedBox(height: 8),

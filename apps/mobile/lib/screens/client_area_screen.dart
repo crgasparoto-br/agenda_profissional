@@ -23,7 +23,7 @@ class _ClientAreaScreenState extends State<ClientAreaScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Area do cliente'),
+        title: const Text('Área do cliente'),
         actions: [
           IconButton(
             onPressed: _signOut,
@@ -40,13 +40,14 @@ class _ClientAreaScreenState extends State<ClientAreaScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Bem-vindo(a)', style: Theme.of(context).textTheme.titleLarge),
+                  Text('Bem-vindo(a)',
+                      style: Theme.of(context).textTheme.titleLarge),
                   const SizedBox(height: 8),
                   Text('Conta: $email'),
                   const SizedBox(height: 10),
                   const Text(
-                    'Este caminho e dedicado ao cliente final. '
-                    'Proximo passo: listar agendamentos e reagendamentos do cliente.',
+                    'Este espaço é dedicado ao cliente final. '
+                    'Próximo passo: listar agendamentos e reagendamentos do cliente.',
                   ),
                 ],
               ),

@@ -56,6 +56,15 @@ flutter run \
   --dart-define=SUPABASE_ANON_KEY=YOUR_ANON_KEY
 ```
 
+Para Android físico na mesma rede da máquina, use o IP local do host no lugar de `127.0.0.1`:
+
+```bash
+cd apps/mobile
+flutter run -d <DEVICE_ID> \
+  --dart-define=SUPABASE_URL=http://<SEU_IP_LOCAL>:54321 \
+  --dart-define=SUPABASE_ANON_KEY=YOUR_ANON_KEY
+```
+
 ## Deploy das Edge Functions
 
 ```bash

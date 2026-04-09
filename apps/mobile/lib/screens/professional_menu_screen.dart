@@ -52,7 +52,7 @@ class _ProfessionalMenuScreenState extends State<ProfessionalMenuScreen> {
         _profileName = profile['full_name'] as String?;
       });
     } catch (_) {
-      // Mantem fallback visual padrão do app.
+      // Mantém o fallback visual padrão do app.
     }
   }
 
@@ -122,7 +122,7 @@ class _ProfessionalMenuScreenState extends State<ProfessionalMenuScreen> {
             child: ListTile(
               leading: const Icon(Icons.manage_search_outlined),
               title: const Text('Auditoria de Pontualidade'),
-              subtitle: const Text('Metricas e investigacao por agendamento'),
+              subtitle: const Text('Métricas e investigação por agendamento'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () =>
                   Navigator.pushNamed(context, '/auditoria-pontualidade'),

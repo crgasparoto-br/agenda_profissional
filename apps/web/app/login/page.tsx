@@ -166,7 +166,9 @@ export default function LoginPage() {
         /failed to fetch|networkerror|network request failed/i.test(message);
 
       if (isNetworkError) {
-        setError("Não foi possível conectar ao servidor de autenticação.");
+        setError(
+          "Não foi possível conectar ao servidor de autenticação. Em desenvolvimento local, confirme se o Supabase está em execução e se o NEXT_PUBLIC_SUPABASE_URL em apps/web/.env.local está correto."
+        );
         return;
       }
 

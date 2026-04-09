@@ -41,28 +41,46 @@ class AppointmentItem {
   final int? punctualityEtaMin;
   final int? punctualityPredictedDelayMin;
 
+  static Map<String, dynamic>? _readRelation(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is List && value.isNotEmpty && value.first is Map<String, dynamic>) {
+      return value.first as Map<String, dynamic>;
+    }
+    return null;
+  }
+
+  static String _readString(
+    Map<String, dynamic> json,
+    String key, {
+    String fallback = '',
+  }) {
+    final value = json[key];
+    if (value is String && value.isNotEmpty) return value;
+    return fallback;
+  }
+
   factory AppointmentItem.fromJson(Map<String, dynamic> json) {
-    final professionals = json['professionals'] as Map<String, dynamic>?;
-    final services = json['services'] as Map<String, dynamic>?;
-    final clients = json['clients'] as Map<String, dynamic>?;
+    final professionals = _readRelation(json['professionals']);
+    final services = _readRelation(json['services']);
+    final clients = _readRelation(json['clients']);
 
     return AppointmentItem(
-      id: json['id'] as String,
-      tenantId: json['tenant_id'] as String,
+      id: _readString(json, 'id'),
+      tenantId: _readString(json, 'tenant_id'),
       clientId: json['client_id'] as String?,
-      serviceId: json['service_id'] as String,
+      serviceId: _readString(json, 'service_id'),
       specialtyId: json['specialty_id'] as String?,
-      professionalId: json['professional_id'] as String,
-      source: (json['source'] as String?) ?? 'professional',
-      startsAt: DateTime.parse(json['starts_at'] as String).toUtc(),
-      endsAt: DateTime.parse(json['ends_at'] as String).toUtc(),
-      status: json['status'] as String,
+      professionalId: _readString(json, 'professional_id'),
+      source: _readString(json, 'source', fallback: 'professional'),
+      startsAt: DateTime.parse(_readString(json, 'starts_at')).toUtc(),
+      endsAt: DateTime.parse(_readString(json, 'ends_at')).toUtc(),
+      status: _readString(json, 'status'),
       cancellationReason: json['cancellation_reason'] as String?,
-      professionalName: (professionals?['name'] ?? '-') as String,
-      serviceName: (services?['name'] ?? '-') as String,
+      professionalName: (professionals?['name'] as String?) ?? '-',
+      serviceName: (services?['name'] as String?) ?? '-',
       serviceDurationMin: (services?['duration_min'] as num?)?.toInt() ?? 0,
       serviceIntervalMin: (services?['interval_min'] as num?)?.toInt() ?? 0,
-      clientName: (clients?['full_name'] ?? 'Sem cliente') as String,
+      clientName: (clients?['full_name'] as String?) ?? 'Sem cliente',
       punctualityStatus:
           (json['punctuality_status'] as String?)?.toLowerCase() ?? 'no_data',
       punctualityEtaMin: (json['punctuality_eta_min'] as num?)?.toInt(),

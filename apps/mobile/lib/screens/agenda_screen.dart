@@ -114,7 +114,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
           background: AppColors.secondary.withValues(alpha: 0.14),
           border: AppColors.secondary.withValues(alpha: 0.4),
           text: const Color(0xFF0F666A),
-          label: 'ConcluÃ­do',
+          label: 'Concluído',
         );
       case 'rescheduled':
         return (
@@ -128,7 +128,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
           background: AppColors.danger.withValues(alpha: 0.12),
           border: AppColors.danger.withValues(alpha: 0.35),
           text: const Color(0xFF8A2E2A),
-          label: 'NÃ£o compareceu',
+          label: 'Não compareceu',
         );
       case 'scheduled':
         return (
@@ -142,7 +142,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
           background: const Color(0xFFF0F2F5),
           border: const Color(0xFFD8DEE5),
           text: const Color(0xFF4B5766),
-          label: 'DisponÃ­vel',
+          label: 'Disponível',
         );
       default:
         return (
@@ -163,7 +163,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
           border: AppColors.secondary.withValues(alpha: 0.4),
           text: const Color(0xFF0F666A),
           stripe: AppColors.secondary,
-          label: 'No horÃ¡rio',
+          label: 'No horário',
         );
       case 'late_ok':
         return (
@@ -179,7 +179,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
           border: AppColors.danger.withValues(alpha: 0.35),
           text: const Color(0xFF8A2E2A),
           stripe: AppColors.danger,
-          label: 'Atraso crÃ­tico',
+          label: 'Atraso crítico',
         );
       case 'no_data':
       default:
@@ -202,7 +202,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
         border: const Color(0xFFD8DEE5),
         text: const Color(0xFF4B5766),
         label: 'Sem consentimento',
-        detail: 'Cliente ainda nÃ£o autorizou localizaÃ§Ã£o',
+        detail: 'Cliente ainda não autorizou localização',
       );
     }
 
@@ -210,8 +210,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
     final expiry = consent.expiresAt;
     if (status == 'granted' && consent.isGrantedActive) {
       final detail = expiry == null
-          ? 'VÃ¡lido sem expiraÃ§Ã£o'
-          : 'VÃ¡lido atÃ© ${_formatShortDate(expiry.toLocal())}';
+          ? 'Válido sem expiração'
+          : 'Válido até ${_formatShortDate(expiry.toLocal())}';
       return (
         background: AppColors.secondary.withValues(alpha: 0.14),
         border: AppColors.secondary.withValues(alpha: 0.4),
@@ -227,7 +227,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
         border: AppColors.danger.withValues(alpha: 0.35),
         text: const Color(0xFF8A2E2A),
         label: 'Consentimento negado',
-        detail: 'Sem autorizaÃ§Ã£o para monitoramento',
+        detail: 'Sem autorização para monitoramento',
       );
     }
 
@@ -237,7 +237,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
         border: AppColors.accent.withValues(alpha: 0.45),
         text: const Color(0xFF8A5427),
         label: 'Consentimento revogado',
-        detail: 'AutorizaÃ§Ã£o removida pelo cliente',
+        detail: 'Autorização removida pelo cliente',
       );
     }
 
@@ -246,7 +246,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
       border: const Color(0xFFD8DEE5),
       text: const Color(0xFF4B5766),
       label: 'Consentimento expirado',
-      detail: 'Renove a autorizaÃ§Ã£o de localizaÃ§Ã£o',
+      detail: 'Renove a autorização de localização',
     );
   }
 
@@ -264,11 +264,11 @@ class _AgendaScreenState extends State<AgendaScreen> {
   String _alertTypeLabel(String type) {
     switch (type) {
       case 'punctuality_on_time':
-        return 'Cliente no horÃ¡rio';
+        return 'Cliente no horário';
       case 'punctuality_late_ok':
         return 'Cliente com atraso leve';
       case 'punctuality_late_critical':
-        return 'Atraso crÃ­tico';
+        return 'Atraso crítico';
       default:
         return 'Alerta de pontualidade';
     }
@@ -630,13 +630,13 @@ class _AgendaScreenState extends State<AgendaScreen> {
   String _previousLabel() {
     if (_viewMode == AgendaViewMode.day) return 'Dia anterior';
     if (_viewMode == AgendaViewMode.week) return 'Semana anterior';
-    return 'MÃªs anterior';
+    return 'Mês anterior';
   }
 
   String _nextLabel() {
-    if (_viewMode == AgendaViewMode.day) return 'PrÃ³ximo dia';
-    if (_viewMode == AgendaViewMode.week) return 'PrÃ³xima semana';
-    return 'PrÃ³ximo mÃªs';
+    if (_viewMode == AgendaViewMode.day) return 'Próximo dia';
+    if (_viewMode == AgendaViewMode.week) return 'Próxima semana';
+    return 'Próximo mês';
   }
 
   bool _isFinalStatus(String status) {
@@ -734,7 +734,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
     await _runStatusUpdate(
       appointmentId: item.id,
       status: 'no_show',
-      errorMessage: 'Erro ao marcar nÃ£o compareceu',
+      errorMessage: 'Erro ao marcar não compareceu',
     );
   }
 
@@ -771,7 +771,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
     if (consent == null || !consent.isGrantedActive) {
       setState(() {
         _error =
-            'Sem consentimento ativo de localizaÃ§Ã£o para esta consulta. Registre o consentimento antes de monitorar.';
+            'Sem consentimento ativo de localização para esta consulta. Registre o consentimento antes de monitorar.';
       });
       return;
     }
@@ -851,7 +851,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setModalState) => AlertDialog(
-          title: const Text('Consentimento de localizaÃ§Ã£o'),
+          title: const Text('Consentimento de localização'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -893,7 +893,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
               TextField(
                 controller: versionController,
                 decoration: const InputDecoration(
-                  labelText: 'VersÃ£o do termo',
+                  labelText: 'Versão do termo',
                   hintText: 'Ex.: v1',
                 ),
               ),
@@ -1060,9 +1060,11 @@ class _AgendaScreenState extends State<AgendaScreen> {
   }
 
   Widget _buildDayList() {
-    return Expanded(
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
         itemBuilder: (_, index) {
           final filteredAppointments = _filteredAppointments;
           final item = filteredAppointments[index];
@@ -1080,156 +1082,142 @@ class _AgendaScreenState extends State<AgendaScreen> {
                   left: BorderSide(color: punctuality.stripe, width: 4),
                 ),
               ),
-              child: ListTile(
-                title: Text('${item.serviceName} - ${item.clientName}'),
-                subtitle: Column(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      '${_formatTime(item.startsAt, timezone)} - ${_formatTime(item.endsAt, timezone)} (${item.professionalName})',
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _punctualityDetail(item),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: const Color(0xFF5C6470),
-                          ),
-                    ),
-                    const SizedBox(height: 6),
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: consent.background,
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: consent.border),
-                          ),
-                          child: Text(
-                            consent.label,
-                            style: TextStyle(
-                              color: consent.text,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 12,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
                         Expanded(
-                          child: Text(
-                            consent.detail,
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '${item.serviceName} - ${item.clientName}',
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${_formatTime(item.startsAt, timezone)} - ${_formatTime(item.endsAt, timezone)} (${item.professionalName})',
+                              ),
+                              const SizedBox(height: 6),
+                              Text(
+                                _punctualityDetail(item),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(
                                       color: const Color(0xFF5C6470),
                                     ),
-                            overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                crossAxisAlignment: WrapCrossAlignment.center,
+                                children: [
+                                  _buildAgendaBadge(
+                                    label: consent.label,
+                                    background: consent.background,
+                                    border: consent.border,
+                                    text: consent.text,
+                                  ),
+                                  ConstrainedBox(
+                                    constraints:
+                                        const BoxConstraints(minWidth: 120, maxWidth: 220),
+                                    child: Text(
+                                      consent.detail,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: const Color(0xFF5C6470),
+                                          ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
+                        ),
+                        PopupMenuButton<String>(
+                          enabled: !_actionLoading,
+                          onSelected: (value) async {
+                            if (value == 'reschedule') {
+                              await _handleReschedule(item);
+                            }
+                            if (value == 'cancel') await _handleCancel(item);
+                            if (value == 'complete') await _handleComplete(item);
+                            if (value == 'no_show') await _handleNoShow(item);
+                            if (value == 'update_punctuality') {
+                              await _handleUpdatePunctuality(item);
+                            }
+                            if (value == 'update_consent') {
+                              await _handleLocationConsent(item);
+                            }
+                          },
+                          itemBuilder: (_) {
+                            final disabled = _isFinalStatus(item.status);
+                            final canUpdatePunctuality =
+                                (_locationConsents[item.id]?.isGrantedActive ??
+                                    false);
+                            return [
+                              PopupMenuItem(
+                                value: 'update_punctuality',
+                                enabled: canUpdatePunctuality,
+                                child: Text(canUpdatePunctuality
+                                    ? 'Atualizar pontualidade'
+                                    : 'Pontualidade (sem consentimento)'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'update_consent',
+                                child: Text('Registrar consentimento'),
+                              ),
+                              PopupMenuItem(
+                                value: 'reschedule',
+                                enabled: !disabled,
+                                child: const Text('Remarcar'),
+                              ),
+                              PopupMenuItem(
+                                value: 'cancel',
+                                enabled: !disabled,
+                                child: const Text('Cancelar'),
+                              ),
+                              PopupMenuItem(
+                                value: 'complete',
+                                enabled: !disabled,
+                                child: const Text('Concluir'),
+                              ),
+                              PopupMenuItem(
+                                value: 'no_show',
+                                enabled: !disabled,
+                                child: const Text('Não compareceu'),
+                              ),
+                            ];
+                          },
                         ),
                       ],
                     ),
-                  ],
-                ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      crossAxisAlignment: CrossAxisAlignment.end,
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
                       children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: status.background,
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: status.border),
-                          ),
-                          child: Text(
-                            status.label,
-                            style: TextStyle(
-                              color: status.text,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 12,
-                            ),
-                          ),
+                        _buildAgendaBadge(
+                          label: status.label,
+                          background: status.background,
+                          border: status.border,
+                          text: status.text,
                         ),
-                        const SizedBox(height: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: punctuality.background,
-                            borderRadius: BorderRadius.circular(999),
-                            border: Border.all(color: punctuality.border),
-                          ),
-                          child: Text(
-                            punctuality.label,
-                            style: TextStyle(
-                              color: punctuality.text,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 12,
-                            ),
-                          ),
+                        _buildAgendaBadge(
+                          label: punctuality.label,
+                          background: punctuality.background,
+                          border: punctuality.border,
+                          text: punctuality.text,
                         ),
                       ],
-                    ),
-                    const SizedBox(width: 4),
-                    PopupMenuButton<String>(
-                      enabled: !_actionLoading,
-                      onSelected: (value) async {
-                        if (value == 'reschedule') {
-                          await _handleReschedule(item);
-                        }
-                        if (value == 'cancel') await _handleCancel(item);
-                        if (value == 'complete') await _handleComplete(item);
-                        if (value == 'no_show') await _handleNoShow(item);
-                        if (value == 'update_punctuality') {
-                          await _handleUpdatePunctuality(item);
-                        }
-                        if (value == 'update_consent') {
-                          await _handleLocationConsent(item);
-                        }
-                      },
-                      itemBuilder: (_) {
-                        final disabled = _isFinalStatus(item.status);
-                        final canUpdatePunctuality =
-                            (_locationConsents[item.id]?.isGrantedActive ??
-                                false);
-                        return [
-                          PopupMenuItem(
-                            value: 'update_punctuality',
-                            enabled: canUpdatePunctuality,
-                            child: Text(canUpdatePunctuality
-                                ? 'Atualizar pontualidade'
-                                : 'Pontualidade (sem consentimento)'),
-                          ),
-                          const PopupMenuItem(
-                            value: 'update_consent',
-                            child: Text('Registrar consentimento'),
-                          ),
-                          PopupMenuItem(
-                            value: 'reschedule',
-                            enabled: !disabled,
-                            child: const Text('Remarcar'),
-                          ),
-                          PopupMenuItem(
-                            value: 'cancel',
-                            enabled: !disabled,
-                            child: const Text('Cancelar'),
-                          ),
-                          PopupMenuItem(
-                            value: 'complete',
-                            enabled: !disabled,
-                            child: const Text('Concluir'),
-                          ),
-                          PopupMenuItem(
-                            value: 'no_show',
-                            enabled: !disabled,
-                            child: const Text('NÃ£o compareceu'),
-                          ),
-                        ];
-                      },
                     ),
                   ],
                 ),
@@ -1239,6 +1227,30 @@ class _AgendaScreenState extends State<AgendaScreen> {
         },
         separatorBuilder: (_, __) => const SizedBox(height: 8),
         itemCount: _filteredAppointments.length,
+      ),
+    );
+  }
+
+  Widget _buildAgendaBadge({
+    required String label,
+    required Color background,
+    required Color border,
+    required Color text,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: text,
+          fontWeight: FontWeight.w500,
+          fontSize: 12,
+        ),
       ),
     );
   }
@@ -1339,7 +1351,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                 ),
                               ),
                               child: Text(
-                                alert.isRead ? 'Lido' : 'Nao lido',
+                                alert.isRead ? 'Lido' : 'Não lido',
                                 style: TextStyle(
                                   color: alert.isRead
                                       ? const Color(0xFF5C6470)
@@ -1422,7 +1434,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
                     style: const TextStyle(color: AppColors.danger),
                   ),
                 )
-              : Column(
+              : ListView(
                   children: [
                     Padding(
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -1481,10 +1493,10 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                       value: 'cancelled',
                                       child: Text('Cancelado')),
                                   DropdownMenuItem(
-                                      value: 'done', child: Text('ConcluÃ­do')),
+                                      value: 'done', child: Text('Concluído')),
                                   DropdownMenuItem(
                                       value: 'no_show',
-                                      child: Text('NÃ£o compareceu')),
+                                      child: Text('Não compareceu')),
                                 ],
                                 onChanged: (value) async {
                                   setState(() => _selectedStatus = value ?? '');
@@ -1548,7 +1560,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                                 : null,
                                       ),
                                       child: Text(
-                                        'MÃªs',
+                                        'Mês',
                                         style: TextStyle(
                                           color:
                                               _viewMode == AgendaViewMode.month

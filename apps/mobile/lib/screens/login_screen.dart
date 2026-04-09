@@ -51,7 +51,7 @@ class _LoginScreenState extends State<LoginScreen> {
         }
 
         if (_passwordController.text != _confirmController.text) {
-          setState(() => _error = 'As senhas nao conferem');
+          setState(() => _error = 'As senhas não conferem');
           return;
         }
 
@@ -84,12 +84,12 @@ class _LoginScreenState extends State<LoginScreen> {
       final message = error.message.toLowerCase();
       if (message.contains('invalid login credentials')) {
         setState(() => _error =
-            'Email ou senha invalido. Se os dados estiverem corretos, confira se o app mobile esta conectado ao mesmo Supabase da web.');
+            'E-mail ou senha inválidos. Se os dados estiverem corretos, confira se o app mobile está conectado ao mesmo Supabase da web.');
         return;
       }
       if (message.contains('invalid api key') || message.contains('apikey')) {
         setState(() => _error =
-            'Configuracao do Supabase invalida no app mobile (SUPABASE_ANON_KEY).');
+            'Configuração do Supabase inválida no app mobile (SUPABASE_ANON_KEY).');
         return;
       }
       setState(() => _error = error.message);
@@ -120,7 +120,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_isSignUp ? 'Criar conta' : 'Login')),
+      appBar: AppBar(title: Text(_isSignUp ? 'Criar conta' : 'Entrar')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -174,7 +174,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                 ? null
                                 : const BorderSide(color: AppColors.primary),
                           ),
-                          child: const Text('Criar usuario'),
+                          child: const Text('Criar usuário'),
                         ),
                       ),
                     ],
@@ -192,7 +192,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
-                    decoration: const InputDecoration(labelText: 'Email'),
+                    decoration: const InputDecoration(labelText: 'E-mail'),
                   ),
                   const SizedBox(height: 12),
                   TextField(

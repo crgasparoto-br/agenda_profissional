@@ -1,11 +1,11 @@
 {
-    "name": "mobile",
-    "short_name": "mobile",
+    "name": "Agenda Profissional",
+    "short_name": "Agenda",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#FFFFFF",
     "theme_color": "#1F3A5F",
-    "description": "A new Flutter project.",
+    "description": "Sua agenda, organizada, confiavel e sempre sob controle.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
