@@ -1,8 +1,10 @@
-import 'dart:io' show Platform;
 import 'dart:async';
 
-import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:intl/intl.dart' as intl;
 import 'package:mobile/screens/agenda_screen.dart';
 import 'package:mobile/screens/client_area_screen.dart';
 import 'package:mobile/screens/clients_screen.dart';
@@ -25,6 +27,7 @@ import 'package:timezone/data/latest_all.dart' as tzdata;
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   tzdata.initializeTimeZones();
+  await initializeDateFormatting('pt_BR');
   runApp(const _BootstrapApp());
 }
 
@@ -38,7 +41,15 @@ class AgendaProfissionalApp extends StatelessWidget {
     return MaterialApp(
       title: 'Agenda Profissional',
       theme: AppTheme.light(),
-      builder: (context, child) => AppLockGate(child: child ?? const SizedBox.shrink()),
+      locale: const Locale('pt', 'BR'),
+      supportedLocales: const [Locale('pt', 'BR')],
+      localizationsDelegates: const [
+        _AgendaMaterialLocalizationsDelegate(),
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      builder: (context, child) =>
+          AppLockGate(child: child ?? const SizedBox.shrink()),
       initialRoute: '/',
       routes: {
         '/': (_) => SessionGate(bootstrapError: bootstrapError),
@@ -79,14 +90,15 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
   bool _checkingAvailability = true;
   bool _unlockInProgress = false;
   bool _resumeRequiresUnlock = false;
+  bool _ignoreNextResume = false;
   String? _unlockError;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _authSubscription =
-        Supabase.instance.client.auth.onAuthStateChange.listen(_onAuthStateChanged);
+    _authSubscription = Supabase.instance.client.auth.onAuthStateChange
+        .listen(_onAuthStateChanged);
     _initializeLockState();
   }
 
@@ -99,6 +111,10 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (_unlockInProgress) {
+      return;
+    }
+
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive ||
         state == AppLifecycleState.hidden) {
@@ -108,6 +124,11 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
     }
 
     if (state == AppLifecycleState.resumed && _resumeRequiresUnlock) {
+      if (_ignoreNextResume) {
+        _ignoreNextResume = false;
+        _resumeRequiresUnlock = false;
+        return;
+      }
       _resumeRequiresUnlock = false;
       _lockAndPrompt();
     }
@@ -179,6 +200,8 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
       if (!mounted) return;
 
       if (authenticated) {
+        _ignoreNextResume = true;
+        _resumeRequiresUnlock = false;
         setState(() {
           _locked = false;
           _unlockError = null;
@@ -235,37 +258,97 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          Row(
+                            children: [
+                              Container(
+                                width: 64,
+                                height: 64,
+                                decoration: BoxDecoration(
+                                  color: AppColors.secondary
+                                      .withValues(alpha: 0.12),
+                                  borderRadius:
+                                      BorderRadius.circular(AppTheme.radiusLg),
+                                ),
+                                child: const Icon(
+                                  Icons.fingerprint_rounded,
+                                  color: AppColors.secondary,
+                                  size: 32,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Sessao protegida',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelLarge
+                                          ?.copyWith(
+                                            color: AppColors.secondary,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'Confirme sua biometria para voltar a usar a agenda.',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: const Color(0xFF66717F),
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
                           Container(
-                            width: 64,
-                            height: 64,
+                            padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
-                              color: AppColors.secondary.withValues(alpha: 0.12),
-                              borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                              color: Colors.white,
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusMd),
+                              border: Border.all(
+                                color:
+                                    AppColors.secondary.withValues(alpha: 0.16),
+                              ),
                             ),
-                            child: const Icon(
-                              Icons.fingerprint_rounded,
-                              color: AppColors.secondary,
-                              size: 32,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  'Desbloqueie sua agenda',
+                                  textAlign: TextAlign.center,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w600,
+                                        color: AppColors.primary,
+                                      ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Seus dados continuam seguros. Use a digital ou o reconhecimento facial para continuar.',
+                                  textAlign: TextAlign.center,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(
+                                        color: const Color(0xFF66717F),
+                                      ),
+                                ),
+                              ],
                             ),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Desbloqueie sua agenda',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  color: AppColors.primary,
-                                ),
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Use a biometria para continuar com seguranca no Agenda Profissional.',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: const Color(0xFF66717F),
-                                ),
                           ),
                           const SizedBox(height: 20),
                           ElevatedButton.icon(
-                            onPressed: _unlockInProgress ? null : _unlockSession,
+                            onPressed:
+                                _unlockInProgress ? null : _unlockSession,
                             icon: const Icon(Icons.lock_open_rounded),
                             label: Text(
                               _unlockInProgress
@@ -275,7 +358,8 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
                           ),
                           const SizedBox(height: 12),
                           OutlinedButton(
-                            onPressed: _unlockInProgress ? null : _signOutFromLock,
+                            onPressed:
+                                _unlockInProgress ? null : _signOutFromLock,
                             child: const Text('Sair desta conta'),
                           ),
                           if (_unlockError != null) ...[
@@ -293,7 +377,8 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
                               ),
                               child: Text(
                                 _unlockError!,
-                                style: const TextStyle(color: Color(0xFF702621)),
+                                style:
+                                    const TextStyle(color: Color(0xFF702621)),
                               ),
                             ),
                           ],
@@ -329,18 +414,14 @@ class _BootstrapAppState extends State<_BootstrapApp> {
   }
 
   Future<void> _initialize() async {
-    final defaultSupabaseUrl = kIsWeb
-        ? 'http://127.0.0.1:54321'
-        : Platform.isAndroid
-            ? 'http://10.0.2.2:54321'
-            : 'http://127.0.0.1:54321';
+    const defaultSupabaseUrl = 'https://rkesdkemcoybowgeouze.supabase.co';
     final supabaseUrl =
         const String.fromEnvironment('SUPABASE_URL', defaultValue: '')
                 .isNotEmpty
             ? const String.fromEnvironment('SUPABASE_URL')
             : defaultSupabaseUrl;
     const defaultLocalAnonKey =
-        'sb_publishable_ACJWlzQHlZjBrEguHvfOxg_3BJgxAaH';
+        'sb_publishable_0eJZ3E8DnIh2MrVJ8NB2bg_-mr03y52';
     final supabaseAnonKey =
         const String.fromEnvironment('SUPABASE_ANON_KEY', defaultValue: '')
                 .isNotEmpty
@@ -367,6 +448,13 @@ class _BootstrapAppState extends State<_BootstrapApp> {
       return MaterialApp(
         title: 'Agenda Profissional',
         theme: AppTheme.light(),
+        locale: const Locale('pt', 'BR'),
+        supportedLocales: const [Locale('pt', 'BR')],
+        localizationsDelegates: const [
+          _AgendaMaterialLocalizationsDelegate(),
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
         home: const Scaffold(
           body: Center(child: CircularProgressIndicator()),
         ),
@@ -374,6 +462,70 @@ class _BootstrapAppState extends State<_BootstrapApp> {
     }
 
     return AgendaProfissionalApp(bootstrapError: _bootstrapError);
+  }
+}
+
+class _AgendaMaterialLocalizationsDelegate
+    extends LocalizationsDelegate<MaterialLocalizations> {
+  const _AgendaMaterialLocalizationsDelegate();
+
+  @override
+  bool isSupported(Locale locale) =>
+      locale.languageCode == 'pt' && locale.countryCode == 'BR';
+
+  @override
+  Future<MaterialLocalizations> load(Locale locale) {
+    const localeName = 'pt_BR';
+
+    return SynchronousFuture<MaterialLocalizations>(
+      _AgendaMaterialLocalizationPtBr(
+        fullYearFormat: intl.DateFormat.y(localeName),
+        compactDateFormat: intl.DateFormat.yMd(localeName),
+        shortDateFormat: intl.DateFormat.yMMMd(localeName),
+        mediumDateFormat: intl.DateFormat.MMMEd(localeName),
+        longDateFormat: intl.DateFormat.yMMMMEEEEd(localeName),
+        yearMonthFormat: intl.DateFormat.yMMMM(localeName),
+        shortMonthDayFormat: intl.DateFormat.MMMd(localeName),
+        decimalFormat: intl.NumberFormat.decimalPattern(localeName),
+        twoDigitZeroPaddedFormat: intl.NumberFormat('00', localeName),
+      ),
+    );
+  }
+
+  @override
+  bool shouldReload(_AgendaMaterialLocalizationsDelegate old) => false;
+}
+
+class _AgendaMaterialLocalizationPtBr extends MaterialLocalizationPt {
+  _AgendaMaterialLocalizationPtBr({
+    required super.fullYearFormat,
+    required super.compactDateFormat,
+    required super.shortDateFormat,
+    required super.mediumDateFormat,
+    required super.longDateFormat,
+    required super.yearMonthFormat,
+    required super.shortMonthDayFormat,
+    required super.decimalFormat,
+    required super.twoDigitZeroPaddedFormat,
+  }) : super(localeName: 'pt_BR');
+
+  String _stripTrailingDots(String value) {
+    return value.replaceAll('.', '');
+  }
+
+  @override
+  String formatMediumDate(DateTime date) {
+    return _stripTrailingDots(super.formatMediumDate(date));
+  }
+
+  @override
+  String formatShortDate(DateTime date) {
+    return _stripTrailingDots(super.formatShortDate(date));
+  }
+
+  @override
+  String formatShortMonthDay(DateTime date) {
+    return _stripTrailingDots(super.formatShortMonthDay(date));
   }
 }
 

@@ -74,7 +74,7 @@ class _LoginScreenState extends State<LoginScreen> {
         }
 
         if (_passwordController.text != _confirmController.text) {
-          setState(() => _error = 'As senhas não conferem');
+          setState(() => _error = 'As senhas nao conferem');
           return;
         }
 
@@ -85,8 +85,10 @@ class _LoginScreenState extends State<LoginScreen> {
         );
 
         if (response.session == null) {
-          setState(() => _status =
-              'Conta criada. Verifique seu email para confirmar o acesso.');
+          setState(() {
+            _status =
+                'Conta criada. Verifique seu email para confirmar o acesso.';
+          });
           return;
         }
 
@@ -108,19 +110,24 @@ class _LoginScreenState extends State<LoginScreen> {
     } on AuthException catch (error) {
       final message = error.message.toLowerCase();
       if (message.contains('invalid login credentials')) {
-        setState(() => _error =
-            'E-mail ou senha inválidos. Se os dados estiverem corretos, confira se o app mobile está conectado ao mesmo Supabase da web.');
+        setState(() {
+          _error =
+              'E-mail ou senha invalidos. Se os dados estiverem corretos, confira se o app mobile esta conectado ao mesmo Supabase da web.';
+        });
         return;
       }
       if (message.contains('invalid api key') || message.contains('apikey')) {
-        setState(() => _error =
-            'Configuração do Supabase inválida no app mobile (SUPABASE_ANON_KEY).');
+        setState(() {
+          _error =
+              'Configuracao do Supabase invalida no app mobile (SUPABASE_ANON_KEY).';
+        });
         return;
       }
       setState(() => _error = error.message);
     } catch (_) {
-      setState(() =>
-          _error = _isSignUp ? 'Falha ao criar conta' : 'Falha ao autenticar');
+      setState(() {
+        _error = _isSignUp ? 'Falha ao criar conta' : 'Falha ao autenticar';
+      });
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -215,6 +222,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final mutedStyle = Theme.of(context).textTheme.bodyMedium?.copyWith(
+          color: const Color(0xFF66717F),
+        );
+
     return Scaffold(
       appBar: AppBar(title: Text(_isSignUp ? 'Criar conta' : 'Entrar')),
       body: ListView(
@@ -222,7 +233,7 @@ class _LoginScreenState extends State<LoginScreen> {
         children: [
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -237,64 +248,54 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   Text(
                     _isSignUp
                         ? 'Crie sua conta para organizar agenda, clientes e confirmacoes em um so lugar.'
                         : 'Entre para acessar sua agenda com seguranca e rapidez.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: const Color(0xFF66717F),
-                        ),
+                    style: mutedStyle,
                     textAlign: TextAlign.center,
                   ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () => setState(() => _isSignUp = false),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _isSignUp
-                                ? Colors.transparent
-                                : AppColors.primary,
-                            foregroundColor:
-                                _isSignUp ? AppColors.primary : Colors.white,
-                            side: _isSignUp
-                                ? const BorderSide(color: AppColors.primary)
-                                : null,
-                          ),
-                          child: const Text('Entrar'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ElevatedButton(
-                          onPressed: () => setState(() => _isSignUp = true),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _isSignUp
-                                ? AppColors.primary
-                                : Colors.transparent,
-                            foregroundColor:
-                                _isSignUp ? Colors.white : AppColors.primary,
-                            side: _isSignUp
+                  const SizedBox(height: 18),
+                  Container(
+                    padding: const EdgeInsets.all(4),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                      border: Border.all(color: const Color(0xFFD7DDE4)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: _AuthModeButton(
+                            label: 'Entrar',
+                            selected: !_isSignUp,
+                            onPressed: _loading
                                 ? null
-                                : const BorderSide(color: AppColors.primary),
+                                : () => setState(() => _isSignUp = false),
                           ),
-                          child: const Text('Criar usuário'),
                         ),
-                      ),
-                    ],
+                        Expanded(
+                          child: _AuthModeButton(
+                            label: 'Criar conta',
+                            selected: _isSignUp,
+                            onPressed: _loading
+                                ? null
+                                : () => setState(() => _isSignUp = true),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 14),
                   if (_isSignUp) ...[
-                    const SizedBox(height: 12),
                     TextField(
                       controller: _nameController,
                       decoration:
                           const InputDecoration(labelText: 'Nome completo'),
                     ),
+                    const SizedBox(height: 12),
                   ],
-                  const SizedBox(height: 12),
                   TextField(
                     controller: _emailController,
                     keyboardType: TextInputType.emailAddress,
@@ -327,8 +328,9 @@ class _LoginScreenState extends State<LoginScreen> {
                       decoration: InputDecoration(
                         labelText: 'Confirmar senha',
                         suffixIcon: IconButton(
-                          onPressed: () => setState(() =>
-                              _showConfirmPassword = !_showConfirmPassword),
+                          onPressed: () => setState(() {
+                            _showConfirmPassword = !_showConfirmPassword;
+                          }),
                           icon: Icon(
                             _showConfirmPassword
                                 ? Icons.visibility_off_outlined
@@ -341,20 +343,16 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Acesso exclusivo para profissionais e equipes de empresas.',
-                    style: TextStyle(color: Color(0xFF66717F)),
-                  ),
                   if (!_isSignUp && _biometricAvailable) ...[
                     const SizedBox(height: 16),
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius:
-                            BorderRadius.circular(AppTheme.radiusMd),
-                        border: Border.all(color: const Color(0xFFD7DDE4)),
+                        color: const Color(0xFFF8FBFC),
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                        border: Border.all(
+                          color: AppColors.secondary.withValues(alpha: 0.22),
+                        ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -363,12 +361,12 @@ class _LoginScreenState extends State<LoginScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Container(
-                                width: 40,
-                                height: 40,
+                                width: 48,
+                                height: 48,
                                 decoration: BoxDecoration(
                                   color: AppColors.secondary
-                                      .withValues(alpha: 0.12),
-                                  borderRadius: BorderRadius.circular(12),
+                                      .withValues(alpha: 0.14),
+                                  borderRadius: BorderRadius.circular(14),
                                 ),
                                 child: const Icon(
                                   Icons.fingerprint_rounded,
@@ -378,11 +376,10 @@ class _LoginScreenState extends State<LoginScreen> {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Biometria no dispositivo',
+                                      'Acesso com biometria',
                                       style: Theme.of(context)
                                           .textTheme
                                           .titleMedium
@@ -394,7 +391,7 @@ class _LoginScreenState extends State<LoginScreen> {
                                     const SizedBox(height: 4),
                                     Text(
                                       _biometricEnabled
-                                          ? 'Use sua biometria para entrar sem digitar a senha.'
+                                          ? 'Entre com mais rapidez e mantenha a sessao protegida neste aparelho.'
                                           : 'Ative para reutilizar com seguranca suas credenciais neste aparelho.',
                                       style: Theme.of(context)
                                           .textTheme
@@ -406,36 +403,137 @@ class _LoginScreenState extends State<LoginScreen> {
                                   ],
                                 ),
                               ),
-                              Switch(
-                                value: _useBiometricOnThisDevice,
-                                onChanged: _loading
-                                    ? null
-                                    : (value) {
-                                        setState(() =>
-                                            _useBiometricOnThisDevice = value);
-                                      },
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _biometricEnabled
+                                      ? AppColors.secondary
+                                          .withValues(alpha: 0.12)
+                                      : AppColors.surface,
+                                  borderRadius:
+                                      BorderRadius.circular(AppTheme.radiusMd),
+                                  border: Border.all(
+                                    color: _biometricEnabled
+                                        ? AppColors.secondary
+                                            .withValues(alpha: 0.25)
+                                        : const Color(0xFFD7DDE4),
+                                  ),
+                                ),
+                                child: Text(
+                                  _biometricEnabled ? 'Ativa' : 'Disponivel',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelMedium
+                                      ?.copyWith(
+                                        color: _biometricEnabled
+                                            ? AppColors.secondary
+                                            : AppColors.primary,
+                                      ),
+                                ),
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 14),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusMd),
+                              border:
+                                  Border.all(color: const Color(0xFFD7DDE4)),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'Usar biometria neste aparelho',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelLarge
+                                            ?.copyWith(
+                                              color: AppColors.primary,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        _biometricEnabled
+                                            ? 'Sua digital ou reconhecimento facial pode substituir a senha no proximo acesso.'
+                                            : 'Ative para salvar a preferencia e agilizar o proximo login.',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: const Color(0xFF66717F),
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Switch(
+                                  value: _useBiometricOnThisDevice,
+                                  onChanged: _loading
+                                      ? null
+                                      : (value) {
+                                          setState(() {
+                                            _useBiometricOnThisDevice = value;
+                                          });
+                                        },
+                                ),
+                              ],
+                            ),
                           ),
                           if (_biometricEnabled) ...[
                             const SizedBox(height: 12),
                             OutlinedButton.icon(
-                              onPressed: _loading ? null : _signInWithBiometrics,
+                              onPressed:
+                                  _loading ? null : _signInWithBiometrics,
                               icon: const Icon(Icons.fingerprint_rounded),
-                              label: const Text('Entrar com biometria'),
+                              style: OutlinedButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 16,
+                                  vertical: 14,
+                                ),
+                                backgroundColor:
+                                    AppColors.secondary.withValues(alpha: 0.06),
+                              ),
+                              label: const Text('Entrar com biometria agora'),
                             ),
                           ],
                         ],
                       ),
                     ),
                   ],
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   ElevatedButton(
                     onPressed: _loading ? null : _submit,
                     child: Text(
                       _loading
                           ? (_isSignUp ? 'Criando...' : 'Entrando...')
                           : (_isSignUp ? 'Criar conta' : 'Entrar'),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: _loading
+                        ? null
+                        : () => setState(() => _isSignUp = !_isSignUp),
+                    child: Text(
+                      _isSignUp
+                          ? 'Ja tem conta? Entrar'
+                          : 'Ainda nao tem conta? Criar conta',
                     ),
                   ),
                   if (_status != null) ...[
@@ -446,10 +544,13 @@ class _LoginScreenState extends State<LoginScreen> {
                         color: AppColors.secondary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
                         border: Border.all(
-                            color: AppColors.secondary.withValues(alpha: 0.35)),
+                          color: AppColors.secondary.withValues(alpha: 0.35),
+                        ),
                       ),
-                      child: Text(_status!,
-                          style: const TextStyle(color: Color(0xFF0F4D50))),
+                      child: Text(
+                        _status!,
+                        style: const TextStyle(color: Color(0xFF0F4D50)),
+                      ),
                     ),
                   ],
                   if (_error != null) ...[
@@ -460,10 +561,13 @@ class _LoginScreenState extends State<LoginScreen> {
                         color: AppColors.danger.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
                         border: Border.all(
-                            color: AppColors.danger.withValues(alpha: 0.35)),
+                          color: AppColors.danger.withValues(alpha: 0.35),
+                        ),
                       ),
-                      child: Text(_error!,
-                          style: const TextStyle(color: Color(0xFF702621))),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: Color(0xFF702621)),
+                      ),
                     ),
                   ],
                 ],
@@ -471,6 +575,53 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _AuthModeButton extends StatelessWidget {
+  const _AuthModeButton({
+    required this.label,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOut,
+      decoration: BoxDecoration(
+        color: selected ? AppColors.primary : Colors.transparent,
+        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+        boxShadow: selected
+            ? [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.14),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ]
+            : null,
+      ),
+      child: TextButton(
+        onPressed: onPressed,
+        style: TextButton.styleFrom(
+          foregroundColor: selected ? Colors.white : AppColors.primary,
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+          ),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
       ),
     );
   }

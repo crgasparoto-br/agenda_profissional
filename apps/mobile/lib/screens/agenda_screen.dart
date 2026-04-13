@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:mobile/theme/app_theme.dart';
 import 'package:timezone/timezone.dart' as tz;
 
@@ -8,6 +9,28 @@ import '../services/appointment_service.dart';
 import '../services/catalog_service.dart';
 
 enum AgendaViewMode { day, week, month }
+
+class _RescheduleSlotOption {
+  const _RescheduleSlotOption({
+    required this.startsAtUtc,
+    required this.endsAtUtc,
+    required this.label,
+  });
+
+  final DateTime startsAtUtc;
+  final DateTime endsAtUtc;
+  final String label;
+}
+
+class _RescheduleDaySuggestion {
+  const _RescheduleDaySuggestion({
+    required this.date,
+    required this.freeSlots,
+  });
+
+  final DateTime date;
+  final int freeSlots;
+}
 
 class AgendaScreen extends StatefulWidget {
   const AgendaScreen({super.key});
@@ -19,8 +42,10 @@ class AgendaScreen extends StatefulWidget {
 class _AgendaScreenState extends State<AgendaScreen> {
   final _catalogService = CatalogService();
   final _appointmentService = AppointmentService();
+  static const _ptBrLocale = 'pt_BR';
 
   bool _loading = false;
+  bool _rangeLoading = false;
   bool _actionLoading = false;
   bool _alertsLoading = false;
   bool _alertsExpanded = true;
@@ -202,7 +227,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
         border: const Color(0xFFD8DEE5),
         text: const Color(0xFF4B5766),
         label: 'Sem consentimento',
-        detail: 'Cliente ainda não autorizou localização',
+        detail: 'Cliente ainda não autorizou a localização',
       );
     }
 
@@ -255,10 +280,10 @@ class _AgendaScreenState extends State<AgendaScreen> {
     final delay = item.punctualityPredictedDelayMin;
     if (eta == null && delay == null) return 'Sem dados de deslocamento';
     if (eta != null && delay != null) {
-      return 'ETA $eta min â€¢ atraso previsto $delay min';
+      return 'Chegada em $eta min • atraso previsto de $delay min';
     }
-    if (eta != null) return 'ETA $eta min';
-    return 'Atraso previsto $delay min';
+    if (eta != null) return 'Chegada em $eta min';
+    return 'Atraso previsto de $delay min';
   }
 
   String _alertTypeLabel(String type) {
@@ -278,10 +303,10 @@ class _AgendaScreenState extends State<AgendaScreen> {
     final eta = (alert.payload['eta_minutes'] as num?)?.toInt();
     final delay = (alert.payload['predicted_arrival_delay'] as num?)?.toInt();
     if (eta != null && delay != null) {
-      return 'ETA $eta min â€¢ atraso previsto $delay min';
+      return 'Chegada em $eta min • atraso previsto de $delay min';
     }
-    if (eta != null) return 'ETA $eta min';
-    if (delay != null) return 'Atraso previsto $delay min';
+    if (eta != null) return 'Chegada em $eta min';
+    if (delay != null) return 'Atraso previsto de $delay min';
     return 'Sem dados adicionais';
   }
 
@@ -506,9 +531,30 @@ class _AgendaScreenState extends State<AgendaScreen> {
     return stats;
   }
 
-  Future<void> _loadAppointments() async {
+  Map<String, List<AppointmentItem>> _appointmentsByDay() {
+    final grouped = <String, List<AppointmentItem>>{};
+
+    for (final item in _filteredAppointments) {
+      final timezone =
+          _timezoneByProfessional[item.professionalId] ?? 'America/Sao_Paulo';
+      final key = _dateKeyInTimezone(item.startsAt, timezone);
+      grouped.putIfAbsent(key, () => <AppointmentItem>[]).add(item);
+    }
+
+    for (final items in grouped.values) {
+      items.sort((a, b) => a.startsAt.compareTo(b.startsAt));
+    }
+
+    return grouped;
+  }
+
+  Future<void> _loadAppointments({bool partial = false}) async {
     setState(() {
-      _loading = true;
+      if (partial) {
+        _rangeLoading = true;
+      } else {
+        _loading = true;
+      }
       _error = null;
     });
 
@@ -571,7 +617,12 @@ class _AgendaScreenState extends State<AgendaScreen> {
     } catch (_) {
       setState(() => _error = 'Erro ao carregar agenda');
     } finally {
-      setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _rangeLoading = false;
+        });
+      }
     }
   }
 
@@ -589,15 +640,41 @@ class _AgendaScreenState extends State<AgendaScreen> {
   }
 
   String _formatShortDate(DateTime value) {
-    final dd = value.day.toString().padLeft(2, '0');
-    final mm = value.month.toString().padLeft(2, '0');
-    final yyyy = value.year.toString();
-    return '$dd/$mm/$yyyy';
+    return DateFormat('dd/MM/yyyy', _ptBrLocale).format(value);
+  }
+
+  String _formatShortDayMonth(DateTime value) {
+    return DateFormat('dd/MM', _ptBrLocale).format(value);
+  }
+
+  String _formatMonthLabel(DateTime value) {
+    final label = DateFormat('MMMM yyyy', _ptBrLocale).format(value);
+    return toBeginningOfSentenceCase(label) ?? label;
+  }
+
+  String _agendaDateLabel() {
+    if (_viewMode == AgendaViewMode.day) {
+      return _formatShortDate(_selectedDate);
+    }
+
+    if (_viewMode == AgendaViewMode.week) {
+      final range = _currentRange();
+      final endInclusive = range.end.subtract(const Duration(days: 1));
+
+      if (range.start.year != endInclusive.year) {
+        return '${_formatShortDate(range.start)} - ${_formatShortDate(endInclusive)}';
+      }
+
+      return '${_formatShortDayMonth(range.start)} - ${_formatShortDate(endInclusive)}';
+    }
+
+    return _formatMonthLabel(_selectedDate);
   }
 
   String _dayHeader(DateTime day) {
-    const names = ['Dom.', 'Seg.', 'Ter.', 'Qua.', 'Qui.', 'Sex.', 'Sab.'];
-    return '${names[_weekdayIndex0to6(day)]} ${day.day}';
+    final label =
+        DateFormat('EEE d', _ptBrLocale).format(day).replaceAll('.', '');
+    return toBeginningOfSentenceCase(label) ?? label;
   }
 
   Future<void> _pickAgendaDate() async {
@@ -609,7 +686,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
     );
     if (picked == null) return;
     setState(() => _selectedDate = picked);
-    await _loadAppointments();
+    await _loadAppointments(partial: _viewMode != AgendaViewMode.day);
   }
 
   Future<void> _shiftAgendaDate(int days) async {
@@ -619,12 +696,65 @@ class _AgendaScreenState extends State<AgendaScreen> {
     } else {
       setState(() => _selectedDate = _selectedDate.add(Duration(days: days)));
     }
-    await _loadAppointments();
+    await _loadAppointments(partial: _viewMode != AgendaViewMode.day);
   }
 
   Future<void> _setViewMode(AgendaViewMode mode) async {
     setState(() => _viewMode = mode);
-    await _loadAppointments();
+    await _loadAppointments(partial: mode != AgendaViewMode.day);
+  }
+
+  int _currentNavigationStep() {
+    if (_viewMode == AgendaViewMode.week) return 7;
+    return 1;
+  }
+
+  Future<void> _handleHorizontalSwipe(DragEndDetails details) async {
+    if (_viewMode == AgendaViewMode.day || _rangeLoading || _actionLoading) {
+      return;
+    }
+
+    final velocity = details.primaryVelocity ?? 0;
+    if (velocity.abs() < 200) return;
+
+    if (velocity < 0) {
+      await _shiftAgendaDate(_currentNavigationStep());
+    } else {
+      await _shiftAgendaDate(-_currentNavigationStep());
+    }
+  }
+
+  Widget _buildAgendaRangeViewport() {
+    final child = _viewMode == AgendaViewMode.day
+        ? _buildDayList()
+        : _viewMode == AgendaViewMode.week
+            ? _buildWeekView()
+            : _buildCalendarView();
+
+    final content = AnimatedOpacity(
+      duration: const Duration(milliseconds: 180),
+      opacity: _rangeLoading ? 0.6 : 1,
+      child: child,
+    );
+
+    if (_viewMode == AgendaViewMode.day) {
+      return content;
+    }
+
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onHorizontalDragEnd: _handleHorizontalSwipe,
+      child: Column(
+        children: [
+          if (_rangeLoading)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: LinearProgressIndicator(minHeight: 2),
+            ),
+          content,
+        ],
+      ),
+    );
   }
 
   String _previousLabel() {
@@ -647,30 +777,558 @@ class _AgendaScreenState extends State<AgendaScreen> {
         normalized == 'no_show';
   }
 
-  Future<DateTime?> _pickRescheduleDateTime(DateTime initialUtc) async {
-    final initialLocal = initialUtc.toLocal();
-    final pickedDate = await showDatePicker(
-      context: context,
-      initialDate: initialLocal,
-      firstDate: DateTime.now().subtract(const Duration(days: 365)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-    );
-    if (pickedDate == null) return null;
-    if (!mounted) return null;
+  DateTime _normalizeDate(DateTime value) {
+    return DateTime(value.year, value.month, value.day);
+  }
 
-    final pickedTime = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(initialLocal),
-    );
-    if (pickedTime == null) return null;
+  DateTime _combineDateAndMinutes(DateTime date, int minutes) {
+    final hour = minutes ~/ 60;
+    final minute = minutes % 60;
+    return DateTime(date.year, date.month, date.day, hour, minute);
+  }
 
-    return DateTime(
-      pickedDate.year,
-      pickedDate.month,
-      pickedDate.day,
-      pickedTime.hour,
-      pickedTime.minute,
-    ).toUtc();
+  bool _overlapsRange({
+    required DateTime startA,
+    required DateTime endA,
+    required DateTime startB,
+    required DateTime endB,
+  }) {
+    return startA.isBefore(endB) && endA.isAfter(startB);
+  }
+
+  Future<List<_RescheduleSlotOption>> _loadRescheduleSlots({
+    required AppointmentItem original,
+    required DateTime selectedDate,
+  }) async {
+    final schedule = _scheduleByProfessional[original.professionalId];
+    final timezone = schedule?.timezone ??
+        _timezoneByProfessional[original.professionalId] ??
+        'America/Sao_Paulo';
+    final location = _resolveLocation(timezone);
+    final day = _normalizeDate(selectedDate);
+    final weekday = _weekdayIndex0to6(day);
+    final workdays = _parseWorkdays(schedule?.workdays);
+    if (!workdays.contains(weekday)) {
+      return const [];
+    }
+
+    final workHours = schedule?.workHours is Map<String, dynamic>
+        ? schedule!.workHours as Map<String, dynamic>
+        : <String, dynamic>{};
+    final overrides = workHours['daily_overrides'] is Map<String, dynamic>
+        ? workHours['daily_overrides'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    final dayRule = overrides['$weekday'] is Map<String, dynamic>
+        ? overrides['$weekday'] as Map<String, dynamic>
+        : workHours;
+
+    final startMinutes = _parseMinutes(
+      dayRule['start'] is String ? dayRule['start'] as String : '09:00',
+    );
+    final endMinutes = _parseMinutes(
+      dayRule['end'] is String ? dayRule['end'] as String : '18:00',
+    );
+    if (startMinutes == null ||
+        endMinutes == null ||
+        endMinutes <= startMinutes) {
+      return const [];
+    }
+
+    final lunch = _parseBreakConfig(dayRule['lunch_break'], '12:00', '13:00');
+    final lunchStart = lunch.enabled ? _parseMinutes(lunch.start) : null;
+    final lunchEnd = lunch.enabled ? _parseMinutes(lunch.end) : null;
+
+    final pause = _parseBreakConfig(dayRule['snack_break'], '16:00', '16:15');
+    final pauseStart = pause.enabled ? _parseMinutes(pause.start) : null;
+    final pauseEnd = pause.enabled ? _parseMinutes(pause.end) : null;
+
+    final blockMinutes =
+        (original.serviceDurationMin + original.serviceIntervalMin) > 0
+            ? (original.serviceDurationMin + original.serviceIntervalMin)
+            : original.endsAt.difference(original.startsAt).inMinutes;
+    final durationMinutes = blockMinutes > 0 ? blockMinutes : 30;
+    final slotStep =
+        (_slotMinutesByProfessional[original.professionalId] ?? durationMinutes)
+            .clamp(5, 1440);
+
+    final localDayStart = tz.TZDateTime(location, day.year, day.month, day.day);
+    final localDayEnd = localDayStart.add(const Duration(days: 1));
+
+    final appointments = await _appointmentService.getAppointmentsRange(
+      start: localDayStart,
+      end: localDayEnd,
+      professionalId: original.professionalId,
+    );
+    final isSameCurrentDay = _normalizeDate(
+          tz.TZDateTime.from(original.startsAt, location),
+        ) ==
+        day;
+
+    final nowInTimezone = tz.TZDateTime.now(location);
+    final slots = <_RescheduleSlotOption>[];
+
+    for (var minute = startMinutes;
+        minute + durationMinutes <= endMinutes;
+        minute += slotStep) {
+      final localStart = _combineDateAndMinutes(day, minute);
+      final localEnd = localStart.add(Duration(minutes: durationMinutes));
+      final label =
+          '${DateFormat('HH:mm', _ptBrLocale).format(localStart)} - ${DateFormat('HH:mm', _ptBrLocale).format(localEnd)}';
+
+      final overlapsLunch = lunch.enabled &&
+          lunchStart != null &&
+          lunchEnd != null &&
+          _overlapsRange(
+            startA: localStart,
+            endA: localEnd,
+            startB: _combineDateAndMinutes(day, lunchStart),
+            endB: _combineDateAndMinutes(day, lunchEnd),
+          );
+      if (overlapsLunch) continue;
+
+      final overlapsPause = pause.enabled &&
+          pauseStart != null &&
+          pauseEnd != null &&
+          _overlapsRange(
+            startA: localStart,
+            endA: localEnd,
+            startB: _combineDateAndMinutes(day, pauseStart),
+            endB: _combineDateAndMinutes(day, pauseEnd),
+          );
+      if (overlapsPause) continue;
+
+      final slotStartUtc = tz.TZDateTime(
+        location,
+        localStart.year,
+        localStart.month,
+        localStart.day,
+        localStart.hour,
+        localStart.minute,
+      ).toUtc();
+      final slotEndUtc = tz.TZDateTime(
+        location,
+        localEnd.year,
+        localEnd.month,
+        localEnd.day,
+        localEnd.hour,
+        localEnd.minute,
+      ).toUtc();
+
+      if (!slotStartUtc.isAfter(nowInTimezone.toUtc())) continue;
+      if (isSameCurrentDay &&
+          _overlapsRange(
+            startA: slotStartUtc,
+            endA: slotEndUtc,
+            startB: original.startsAt,
+            endB: original.endsAt,
+          )) {
+        continue;
+      }
+
+      final hasConflict = appointments.any((appointment) {
+        if (appointment.id == original.id) return false;
+        final normalizedStatus = appointment.status.toLowerCase();
+        if (normalizedStatus == 'cancelled' ||
+            normalizedStatus == 'rescheduled' ||
+            normalizedStatus == 'no_show') {
+          return false;
+        }
+        return _overlapsRange(
+          startA: slotStartUtc,
+          endA: slotEndUtc,
+          startB: appointment.startsAt,
+          endB: appointment.endsAt,
+        );
+      });
+
+      if (hasConflict) continue;
+
+      slots.add(
+        _RescheduleSlotOption(
+          startsAtUtc: slotStartUtc,
+          endsAtUtc: slotEndUtc,
+          label: label,
+        ),
+      );
+    }
+
+    return slots;
+  }
+
+  String? _rescheduleDayHint({
+    required AppointmentItem original,
+    required DateTime selectedDate,
+  }) {
+    final schedule = _scheduleByProfessional[original.professionalId];
+    final day = _normalizeDate(selectedDate);
+    final weekday = _weekdayIndex0to6(day);
+    final workdays = _parseWorkdays(schedule?.workdays);
+
+    if (!workdays.contains(weekday)) {
+      return 'O profissional nao atende neste dia.';
+    }
+
+    final workHours = schedule?.workHours is Map<String, dynamic>
+        ? schedule!.workHours as Map<String, dynamic>
+        : <String, dynamic>{};
+    final overrides = workHours['daily_overrides'] is Map<String, dynamic>
+        ? workHours['daily_overrides'] as Map<String, dynamic>
+        : <String, dynamic>{};
+    final dayRule = overrides['$weekday'] is Map<String, dynamic>
+        ? overrides['$weekday'] as Map<String, dynamic>
+        : workHours;
+
+    final startMinutes = _parseMinutes(
+      dayRule['start'] is String ? dayRule['start'] as String : '09:00',
+    );
+    final endMinutes = _parseMinutes(
+      dayRule['end'] is String ? dayRule['end'] as String : '18:00',
+    );
+
+    if (startMinutes == null ||
+        endMinutes == null ||
+        endMinutes <= startMinutes) {
+      return 'Nao existe uma janela de atendimento configurada para este dia.';
+    }
+
+    final timezone = schedule?.timezone ??
+        _timezoneByProfessional[original.professionalId] ??
+        'America/Sao_Paulo';
+    final currentDay = _normalizeDate(
+      tz.TZDateTime.from(original.startsAt, _resolveLocation(timezone)),
+    );
+    if (day == currentDay) {
+      return 'O horario atual desta consulta nao pode ser selecionado novamente.';
+    }
+
+    return null;
+  }
+
+  Future<List<_RescheduleDaySuggestion>> _findNextAvailableRescheduleDays({
+    required AppointmentItem original,
+    required DateTime fromDate,
+    int lookAheadDays = 21,
+    int maxSuggestions = 4,
+  }) async {
+    final suggestions = <_RescheduleDaySuggestion>[];
+
+    for (var offset = 1; offset <= lookAheadDays; offset++) {
+      final candidateDate = _normalizeDate(
+        fromDate.add(Duration(days: offset)),
+      );
+      final slots = await _loadRescheduleSlots(
+        original: original,
+        selectedDate: candidateDate,
+      );
+      if (slots.isEmpty) continue;
+
+      suggestions.add(
+        _RescheduleDaySuggestion(
+          date: candidateDate,
+          freeSlots: slots.length,
+        ),
+      );
+      if (suggestions.length >= maxSuggestions) {
+        break;
+      }
+    }
+
+    return suggestions;
+  }
+
+  Future<_RescheduleSlotOption?> _pickRescheduleSlot(
+    AppointmentItem original,
+  ) async {
+    final schedule = _scheduleByProfessional[original.professionalId];
+    final timezone = schedule?.timezone ??
+        _timezoneByProfessional[original.professionalId] ??
+        'America/Sao_Paulo';
+    final location = _resolveLocation(timezone);
+    var selectedDate = _normalizeDate(
+      tz.TZDateTime.from(original.startsAt, location),
+    );
+
+    List<_RescheduleSlotOption> slots = const [];
+    List<_RescheduleDaySuggestion> suggestions = const [];
+    _RescheduleSlotOption? selectedSlot;
+    var loading = true;
+    var suggestionsLoading = false;
+    String? modalError;
+    var initialized = false;
+
+    return showDialog<_RescheduleSlotOption>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setModalState) {
+          Future<void> loadSlots() async {
+            setModalState(() {
+              loading = true;
+              suggestionsLoading = false;
+              modalError = null;
+              selectedSlot = null;
+              suggestions = const [];
+            });
+
+            try {
+              final nextSlots = await _loadRescheduleSlots(
+                original: original,
+                selectedDate: selectedDate,
+              );
+              if (!ctx.mounted) return;
+              setModalState(() {
+                slots = nextSlots;
+              });
+              if (nextSlots.isEmpty) {
+                setModalState(() => suggestionsLoading = true);
+                final nextSuggestions = await _findNextAvailableRescheduleDays(
+                  original: original,
+                  fromDate: selectedDate,
+                );
+                if (!ctx.mounted) return;
+                setModalState(() {
+                  suggestions = nextSuggestions;
+                });
+              }
+            } catch (_) {
+              if (!ctx.mounted) return;
+              setModalState(() {
+                slots = const [];
+                suggestions = const [];
+                modalError = 'Nao foi possivel carregar os horarios livres.';
+              });
+            } finally {
+              if (ctx.mounted) {
+                setModalState(() {
+                  loading = false;
+                  suggestionsLoading = false;
+                });
+              }
+            }
+          }
+
+          if (!initialized) {
+            initialized = true;
+            Future.microtask(loadSlots);
+          }
+
+          final currentLocal = tz.TZDateTime.from(original.startsAt, location);
+          final currentSlotLabel =
+              '${DateFormat('dd/MM/yyyy', _ptBrLocale).format(currentLocal)} • ${DateFormat('HH:mm', _ptBrLocale).format(currentLocal)}';
+
+          final dayHint = _rescheduleDayHint(
+            original: original,
+            selectedDate: selectedDate,
+          );
+
+          return AlertDialog(
+            title: const Text('Remarcar consulta'),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${original.clientName} • ${original.serviceName}',
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Horario atual: $currentSlotLabel',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: const Color(0xFF66717F),
+                        ),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: loading
+                        ? null
+                        : () async {
+                            final picked = await showDatePicker(
+                              context: ctx,
+                              initialDate: selectedDate,
+                              firstDate: DateTime.now()
+                                  .subtract(const Duration(days: 365)),
+                              lastDate:
+                                  DateTime.now().add(const Duration(days: 365)),
+                            );
+                            if (picked == null || !ctx.mounted) return;
+                            setModalState(() {
+                              selectedDate = _normalizeDate(picked);
+                            });
+                            await loadSlots();
+                          },
+                    icon: const Icon(Icons.calendar_today_outlined, size: 18),
+                    label: Text(
+                      DateFormat("EEEE, dd 'de' MMMM", _ptBrLocale)
+                          .format(selectedDate),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  if (loading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Center(child: CircularProgressIndicator()),
+                    )
+                  else ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFB),
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                        border: Border.all(color: const Color(0xFFD7DDE4)),
+                      ),
+                      child: Text(
+                        slots.isEmpty
+                            ? (dayHint ??
+                                'Nenhum horario livre encontrado para este dia.')
+                            : '${slots.length} horarios livres encontrados. Toque em um horario para selecionar.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF5C6470),
+                            ),
+                      ),
+                    ),
+                    if (modalError != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        modalError!,
+                        style: const TextStyle(color: AppColors.danger),
+                      ),
+                    ],
+                    const SizedBox(height: 12),
+                    ConstrainedBox(
+                      constraints: const BoxConstraints(maxHeight: 260),
+                      child: slots.isEmpty
+                          ? SingleChildScrollView(
+                              child: Column(
+                                mainAxisSize: MainAxisSize.min,
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  if (suggestionsLoading)
+                                    const Padding(
+                                      padding: EdgeInsets.only(top: 12),
+                                      child:
+                                          LinearProgressIndicator(minHeight: 2),
+                                    ),
+                                  if (!suggestionsLoading &&
+                                      suggestions.isNotEmpty) ...[
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      'Proximos dias com disponibilidade',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleSmall
+                                          ?.copyWith(
+                                              fontWeight: FontWeight.w700),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Wrap(
+                                      spacing: 8,
+                                      runSpacing: 8,
+                                      children: [
+                                        for (final suggestion in suggestions)
+                                          ActionChip(
+                                            label: Text(
+                                              '${DateFormat('dd/MM', _ptBrLocale).format(suggestion.date)} • ${suggestion.freeSlots} livres',
+                                            ),
+                                            onPressed: () async {
+                                              setModalState(() {
+                                                selectedDate = _normalizeDate(
+                                                    suggestion.date);
+                                              });
+                                              await loadSlots();
+                                            },
+                                            avatar: const Icon(
+                                              Icons.arrow_forward_rounded,
+                                              size: 18,
+                                            ),
+                                          ),
+                                      ],
+                                    ),
+                                  ],
+                                  if (!suggestionsLoading &&
+                                      suggestions.isEmpty &&
+                                      modalError == null) ...[
+                                    const SizedBox(height: 12),
+                                    Text(
+                                      'Nao encontramos disponibilidade nos proximos dias pesquisados.',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: const Color(0xFF66717F),
+                                          ),
+                                    ),
+                                  ],
+                                ],
+                              ),
+                            )
+                          : SingleChildScrollView(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Wrap(
+                                    spacing: 8,
+                                    runSpacing: 8,
+                                    children: [
+                                      for (final slot in slots)
+                                        ChoiceChip(
+                                          label: Text(slot.label),
+                                          selected: selectedSlot == slot,
+                                          onSelected: (_) {
+                                            setModalState(
+                                                () => selectedSlot = slot);
+                                          },
+                                          selectedColor: AppColors.primary
+                                              .withValues(alpha: 0.16),
+                                          labelStyle: TextStyle(
+                                            color: selectedSlot == slot
+                                                ? AppColors.primary
+                                                : AppColors.text,
+                                            fontWeight: selectedSlot == slot
+                                                ? FontWeight.w700
+                                                : FontWeight.w500,
+                                          ),
+                                          side: BorderSide(
+                                            color: selectedSlot == slot
+                                                ? AppColors.primary
+                                                : const Color(0xFFD7DDE4),
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              AppTheme.radiusMd,
+                                            ),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: loading || selectedSlot == null
+                    ? null
+                    : () => Navigator.pop(ctx, selectedSlot),
+                child: const Text('Confirmar remarcacao'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _runStatusUpdate({
@@ -734,19 +1392,13 @@ class _AgendaScreenState extends State<AgendaScreen> {
     await _runStatusUpdate(
       appointmentId: item.id,
       status: 'no_show',
-      errorMessage: 'Erro ao marcar não compareceu',
+      errorMessage: 'Erro ao marcar ausência do cliente',
     );
   }
 
   Future<void> _handleReschedule(AppointmentItem item) async {
-    final newStartUtc = await _pickRescheduleDateTime(item.startsAt);
-    if (newStartUtc == null) return;
-
-    final blockMinutes = (item.serviceDurationMin + item.serviceIntervalMin) > 0
-        ? (item.serviceDurationMin + item.serviceIntervalMin)
-        : item.endsAt.difference(item.startsAt).inMinutes;
-    final durationMinutes = blockMinutes > 0 ? blockMinutes : 30;
-    final newEndUtc = newStartUtc.add(Duration(minutes: durationMinutes));
+    final selectedSlot = await _pickRescheduleSlot(item);
+    if (selectedSlot == null) return;
 
     setState(() {
       _actionLoading = true;
@@ -755,8 +1407,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
     try {
       await _appointmentService.rescheduleAppointment(
         original: item,
-        newStartsAt: newStartUtc,
-        newEndsAt: newEndUtc,
+        newStartsAt: selectedSlot.startsAtUtc,
+        newEndsAt: selectedSlot.endsAtUtc,
       );
       await _loadAppointments();
     } catch (_) {
@@ -787,7 +1439,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
           controller: controller,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
-            labelText: 'ETA em minutos (opcional)',
+            labelText: 'Tempo estimado de chegada em minutos',
             hintText: 'Ex.: 20',
           ),
         ),
@@ -857,7 +1509,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${item.clientName} â€¢ ${item.serviceName}',
+                '${item.clientName} • ${item.serviceName}',
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: 12),
@@ -973,88 +1625,603 @@ class _AgendaScreenState extends State<AgendaScreen> {
     await _loadAppointments();
   }
 
+  Future<void> _handleMonthDayTap(DateTime day) async {
+    final normalizedDay = DateTime(day.year, day.month, day.day);
+    if (normalizedDay.month == _selectedDate.month &&
+        normalizedDay.year == _selectedDate.year) {
+      setState(() => _selectedDate = normalizedDay);
+      return;
+    }
+
+    setState(() => _selectedDate = normalizedDay);
+    await _loadAppointments();
+  }
+
   Widget _buildCalendarView() {
     final days = _calendarDays();
     final stats = _dailyStats();
+    final appointmentsByDay = _appointmentsByDay();
     final currentMonth = _selectedDate.month;
+    final selectedKey = _dateKey(_selectedDate);
+    final selectedStats = stats[selectedKey] ?? (occupied: 0, free: 0);
+    final selectedAppointments = appointmentsByDay[selectedKey] ?? const [];
+    const weekdayLabels = ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sab', 'Dom'];
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: 7 * 120,
-              child: GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: days.length,
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 7,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
-                  childAspectRatio: 1.15,
-                ),
-                itemBuilder: (_, index) {
-                  final day = days[index];
-                  final key = _dateKey(day);
-                  final dayStats = stats[key] ?? (occupied: 0, free: 0);
-                  final isCurrentMonth = day.month == currentMonth;
-                  final isSelected = _dateKey(_selectedDate) == key;
-                  final isEmpty = dayStats.occupied == 0;
-                  final isFull = dayStats.occupied > 0 && dayStats.free == 0;
+      child: Column(
+        children: [
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final cellWidth = (constraints.maxWidth - (6 * 6)) / 7;
+                  final cellHeight = cellWidth.clamp(54.0, 78.0).toDouble();
 
-                  Color bg = Colors.white;
-                  if (isEmpty) bg = AppColors.danger.withValues(alpha: 0.10);
-                  if (isFull) bg = AppColors.secondary.withValues(alpha: 0.10);
-                  if (!isCurrentMonth && _viewMode == AgendaViewMode.month) {
-                    bg = bg.withValues(alpha: 0.55);
-                  }
-
-                  return InkWell(
-                    onTap: () => _openDay(day),
-                    borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: bg,
-                        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
-                        border: Border.all(
-                          color: isSelected
-                              ? AppColors.primary
-                              : const Color(0xFFD7DDE4),
-                          width: isSelected ? 1.5 : 1,
-                        ),
-                      ),
-                      padding: const EdgeInsets.all(8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                  return Column(
+                    children: [
+                      Row(
                         children: [
-                          Text(
-                            _dayHeader(day),
-                            style:
-                                Theme.of(context).textTheme.bodySmall?.copyWith(
-                                      color: const Color(0xFF66717F),
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                            overflow: TextOverflow.ellipsis,
-                            maxLines: 1,
-                          ),
-                          const Spacer(),
-                          Text('Ocupados: ${dayStats.occupied}',
-                              style: Theme.of(context).textTheme.bodySmall),
-                          Text('Livres: ${dayStats.free}',
-                              style: Theme.of(context).textTheme.bodySmall),
+                          for (final label in weekdayLabels)
+                            Expanded(
+                              child: Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Text(
+                                  label,
+                                  textAlign: TextAlign.center,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelMedium
+                                      ?.copyWith(
+                                        color: const Color(0xFF66717F),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
-                    ),
+                      GridView.builder(
+                        shrinkWrap: true,
+                        physics: const NeverScrollableScrollPhysics(),
+                        itemCount: days.length,
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 7,
+                          crossAxisSpacing: 6,
+                          mainAxisSpacing: 6,
+                          childAspectRatio: cellWidth / cellHeight,
+                        ),
+                        itemBuilder: (_, index) {
+                          final day = days[index];
+                          final key = _dateKey(day);
+                          final dayStats = stats[key] ?? (occupied: 0, free: 0);
+                          final isCurrentMonth = day.month == currentMonth;
+                          final isSelected = selectedKey == key;
+                          final isToday = _dateKey(DateTime.now()) == key;
+                          final hasAppointments = dayStats.occupied > 0;
+                          final isFull =
+                              dayStats.occupied > 0 && dayStats.free == 0;
+
+                          Color background = Colors.white;
+                          Color border = const Color(0xFFD7DDE4);
+                          Color dayColor = AppColors.text;
+
+                          if (!isCurrentMonth) {
+                            background = const Color(0xFFF7F8FA);
+                            dayColor = const Color(0xFF9AA3AE);
+                          } else if (isFull) {
+                            background =
+                                AppColors.secondary.withValues(alpha: 0.12);
+                          } else if (hasAppointments) {
+                            background =
+                                AppColors.primary.withValues(alpha: 0.06);
+                          }
+
+                          if (isToday) {
+                            border = AppColors.secondary;
+                          }
+
+                          if (isSelected) {
+                            background = AppColors.primary;
+                            border = AppColors.primary;
+                            dayColor = Colors.white;
+                          }
+
+                          return InkWell(
+                            onTap: () => _handleMonthDayTap(day),
+                            borderRadius:
+                                BorderRadius.circular(AppTheme.radiusMd),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: background,
+                                borderRadius:
+                                    BorderRadius.circular(AppTheme.radiusMd),
+                                border: Border.all(
+                                  color: border,
+                                  width: isSelected || isToday ? 1.5 : 1,
+                                ),
+                              ),
+                              padding: const EdgeInsets.all(6),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          day.day.toString(),
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .labelLarge
+                                              ?.copyWith(
+                                                color: dayColor,
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                        ),
+                                      ),
+                                      if (hasAppointments)
+                                        Container(
+                                          width: 8,
+                                          height: 8,
+                                          decoration: BoxDecoration(
+                                            color: isSelected
+                                                ? Colors.white
+                                                : isFull
+                                                    ? AppColors.secondary
+                                                    : AppColors.accent,
+                                            shape: BoxShape.circle,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                   );
                 },
               ),
             ),
           ),
-        ),
+          const SizedBox(height: 12),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _dayHeader(_selectedDate),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _formatShortDate(_selectedDate),
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: const Color(0xFF66717F)),
+                            ),
+                          ],
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => _openDay(_selectedDate),
+                        icon: const Icon(Icons.arrow_forward_rounded, size: 18),
+                        label: const Text('Ver dia'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _buildAgendaBadge(
+                        label: '${selectedStats.occupied} atendimentos',
+                        background: AppColors.secondary.withValues(alpha: 0.12),
+                        border: AppColors.secondary.withValues(alpha: 0.35),
+                        text: const Color(0xFF0F666A),
+                      ),
+                      _buildAgendaBadge(
+                        label: '${selectedStats.free} horários livres',
+                        background: const Color(0xFFF0F2F5),
+                        border: const Color(0xFFD8DEE5),
+                        text: const Color(0xFF4B5766),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  if (selectedAppointments.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFB),
+                        borderRadius: BorderRadius.circular(AppTheme.radiusMd),
+                        border: Border.all(color: const Color(0xFFD7DDE4)),
+                      ),
+                      child: Text(
+                        'Nenhum atendimento listado para este dia.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: const Color(0xFF66717F),
+                            ),
+                      ),
+                    )
+                  else
+                    Column(
+                      children: [
+                        for (final item in selectedAppointments.take(3)) ...[
+                          Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusMd),
+                              border:
+                                  Border.all(color: const Color(0xFFD7DDE4)),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 10,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: AppColors.primary
+                                        .withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(
+                                      AppTheme.radiusMd,
+                                    ),
+                                  ),
+                                  child: Text(
+                                    _formatTime(
+                                      item.startsAt,
+                                      _timezoneByProfessional[
+                                              item.professionalId] ??
+                                          'America/Sao_Paulo',
+                                    ),
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .labelMedium
+                                        ?.copyWith(
+                                          color: AppColors.primary,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item.clientName,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '${item.serviceName} • ${item.professionalName}',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              color: const Color(0xFF66717F),
+                                            ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        if (selectedAppointments.length > 3)
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              '+${selectedAppointments.length - 3} atendimentos neste dia',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: const Color(0xFF66717F),
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                            ),
+                          ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWeekView() {
+    final days = _calendarDays();
+    final stats = _dailyStats();
+    final appointmentsByDay = _appointmentsByDay();
+    final selectedKey = _dateKey(_selectedDate);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+      child: ListView.separated(
+        shrinkWrap: true,
+        physics: const NeverScrollableScrollPhysics(),
+        itemCount: days.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 10),
+        itemBuilder: (_, index) {
+          final day = days[index];
+          final key = _dateKey(day);
+          final dayStats = stats[key] ?? (occupied: 0, free: 0);
+          final dayAppointments = appointmentsByDay[key] ?? const [];
+          final isSelected = selectedKey == key;
+          final isToday = _dateKey(DateTime.now()) == key;
+
+          return InkWell(
+            onTap: () => _openDay(day),
+            borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+            child: Card(
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(AppTheme.radiusLg),
+                  border: Border.all(
+                    color: isSelected
+                        ? AppColors.primary
+                        : const Color(0xFFD7DDE4),
+                    width: isSelected ? 1.5 : 1,
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Container(
+                            width: 54,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 8,
+                              vertical: 10,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isToday
+                                  ? AppColors.primary
+                                  : AppColors.surface,
+                              borderRadius:
+                                  BorderRadius.circular(AppTheme.radiusMd),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  [
+                                    'DOM',
+                                    'SEG',
+                                    'TER',
+                                    'QUA',
+                                    'QUI',
+                                    'SEX',
+                                    'SAB'
+                                  ][_weekdayIndex0to6(day)],
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
+                                      ?.copyWith(
+                                        color: isToday
+                                            ? Colors.white
+                                            : const Color(0xFF66717F),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  day.day.toString().padLeft(2, '0'),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleLarge
+                                      ?.copyWith(
+                                        color: isToday
+                                            ? Colors.white
+                                            : AppColors.primary,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  _formatShortDate(day),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.w600),
+                                ),
+                                const SizedBox(height: 6),
+                                Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    _buildAgendaBadge(
+                                      label:
+                                          '${dayStats.occupied} atendimentos',
+                                      background: AppColors.secondary
+                                          .withValues(alpha: 0.12),
+                                      border: AppColors.secondary
+                                          .withValues(alpha: 0.35),
+                                      text: const Color(0xFF0F666A),
+                                    ),
+                                    _buildAgendaBadge(
+                                      label: '${dayStats.free} horários livres',
+                                      background: const Color(0xFFF0F2F5),
+                                      border: const Color(0xFFD8DEE5),
+                                      text: const Color(0xFF4B5766),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(
+                            Icons.chevron_right_rounded,
+                            color: Color(0xFF7A8492),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      if (dayAppointments.isEmpty)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF8FAFB),
+                            borderRadius:
+                                BorderRadius.circular(AppTheme.radiusMd),
+                            border: Border.all(color: const Color(0xFFD7DDE4)),
+                          ),
+                          child: Text(
+                            'Sem atendimentos listados para este dia.',
+                            style:
+                                Theme.of(context).textTheme.bodySmall?.copyWith(
+                                      color: const Color(0xFF66717F),
+                                    ),
+                          ),
+                        )
+                      else
+                        Column(
+                          children: [
+                            for (final item in dayAppointments.take(4)) ...[
+                              Container(
+                                width: double.infinity,
+                                margin: const EdgeInsets.only(bottom: 8),
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius:
+                                      BorderRadius.circular(AppTheme.radiusMd),
+                                  border: Border.all(
+                                    color: const Color(0xFFD7DDE4),
+                                  ),
+                                ),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 8,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppColors.primary
+                                            .withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(
+                                          AppTheme.radiusMd,
+                                        ),
+                                      ),
+                                      child: Text(
+                                        _formatTime(
+                                          item.startsAt,
+                                          _timezoneByProfessional[
+                                                  item.professionalId] ??
+                                              'America/Sao_Paulo',
+                                        ),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelMedium
+                                            ?.copyWith(
+                                              color: AppColors.primary,
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            item.clientName,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodyMedium
+                                                ?.copyWith(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            '${item.serviceName} • ${item.professionalName}',
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall
+                                                ?.copyWith(
+                                                  color:
+                                                      const Color(0xFF66717F),
+                                                ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            if (dayAppointments.length > 4)
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  '+${dayAppointments.length - 4} atendimentos neste dia',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: const Color(0xFF66717F),
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                ),
+                              ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -1125,8 +2292,8 @@ class _AgendaScreenState extends State<AgendaScreen> {
                                     text: consent.text,
                                   ),
                                   ConstrainedBox(
-                                    constraints:
-                                        const BoxConstraints(minWidth: 120, maxWidth: 220),
+                                    constraints: const BoxConstraints(
+                                        minWidth: 120, maxWidth: 220),
                                     child: Text(
                                       consent.detail,
                                       style: Theme.of(context)
@@ -1148,9 +2315,15 @@ class _AgendaScreenState extends State<AgendaScreen> {
                             if (value == 'reschedule') {
                               await _handleReschedule(item);
                             }
-                            if (value == 'cancel') await _handleCancel(item);
-                            if (value == 'complete') await _handleComplete(item);
-                            if (value == 'no_show') await _handleNoShow(item);
+                            if (value == 'cancel') {
+                              await _handleCancel(item);
+                            }
+                            if (value == 'complete') {
+                              await _handleComplete(item);
+                            }
+                            if (value == 'no_show') {
+                              await _handleNoShow(item);
+                            }
                             if (value == 'update_punctuality') {
                               await _handleUpdatePunctuality(item);
                             }
@@ -1306,9 +2479,19 @@ class _AgendaScreenState extends State<AgendaScreen> {
                   ),
                 ..._punctualityAlerts.map((alert) {
                   final appointment = appointmentById[alert.appointmentId];
+                  final payloadClientName =
+                      (alert.payload['client_name'] as String?)?.trim();
+                  final payloadServiceName =
+                      (alert.payload['service_name'] as String?)?.trim();
                   final title = appointment != null
                       ? '${appointment.clientName} • ${appointment.serviceName}'
-                      : 'Consulta ${alert.appointmentId.substring(0, 8)}';
+                      : payloadClientName != null &&
+                              payloadClientName.isNotEmpty
+                          ? payloadServiceName != null &&
+                                  payloadServiceName.isNotEmpty
+                              ? '$payloadClientName • $payloadServiceName'
+                              : payloadClientName
+                          : 'Cliente da consulta';
 
                   return Container(
                     margin: const EdgeInsets.only(bottom: 8),
@@ -1384,11 +2567,22 @@ class _AgendaScreenState extends State<AgendaScreen> {
                         if (!alert.isRead)
                           Align(
                             alignment: Alignment.centerRight,
-                            child: TextButton(
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 10,
+                                ),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius:
+                                      BorderRadius.circular(AppTheme.radiusMd),
+                                ),
+                              ),
                               onPressed: _alertsLoading
                                   ? null
                                   : () => _markAlertAsRead(alert),
-                              child: const Text('Marcar como lido'),
+                              icon: const Icon(Icons.done_rounded, size: 18),
+                              label: const Text('Marcar como lido'),
                             ),
                           ),
                       ],
@@ -1403,6 +2597,11 @@ class _AgendaScreenState extends State<AgendaScreen> {
     );
   }
 
+  Future<void> _refreshAgenda() async {
+    if (_actionLoading) return;
+    await _loadAppointments(partial: _viewMode != AgendaViewMode.day);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -1415,240 +2614,248 @@ class _AgendaScreenState extends State<AgendaScreen> {
         ),
         actions: [
           IconButton(
-            onPressed: _loadAppointments,
+            onPressed: _refreshAgenda,
             icon: const Icon(Icons.refresh),
           ),
           IconButton(
             onPressed: () => Navigator.pushNamed(context, '/appointments/new')
-                .then((_) => _loadAppointments()),
+                .then((_) => _refreshAgenda()),
             icon: const Icon(Icons.add),
           ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-              ? Center(
-                  child: Text(
-                    _error!,
-                    style: const TextStyle(color: AppColors.danger),
-                  ),
-                )
-              : ListView(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                      child: Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              Text(
-                                'Filtros da agenda',
-                                style: Theme.of(context).textTheme.titleMedium,
-                              ),
-                              const SizedBox(height: 10),
-                              DropdownButtonFormField<String?>(
-                                initialValue: _selectedProfessionalId,
-                                decoration: const InputDecoration(
-                                    labelText: 'Profissional'),
-                                items: [
-                                  const DropdownMenuItem<String?>(
-                                    value: null,
-                                    child: Text('Todos'),
-                                  ),
-                                  ..._professionals.map(
-                                    (item) => DropdownMenuItem<String?>(
-                                      value: item.id,
-                                      child: Text(item.label),
-                                    ),
-                                  ),
-                                ],
-                                onChanged: (value) async {
-                                  setState(
-                                      () => _selectedProfessionalId = value);
-                                  await _loadAppointments();
-                                },
-                              ),
-                              const SizedBox(height: 8),
-                              DropdownButtonFormField<String>(
-                                initialValue: _selectedStatus,
-                                isDense: true,
-                                decoration: const InputDecoration(
-                                  labelText: 'Status',
-                                  contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 10, vertical: 10),
+      body: RefreshIndicator(
+        onRefresh: _refreshAgenda,
+        child: _loading
+            ? ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const [
+                  SizedBox(height: 220),
+                  Center(child: CircularProgressIndicator()),
+                ],
+              )
+            : _error != null
+                ? ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      const SizedBox(height: 220),
+                      Center(
+                        child: Text(
+                          _error!,
+                          style: const TextStyle(color: AppColors.danger),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ],
+                  )
+                : ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+                        child: Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                Text(
+                                  'Filtros da agenda',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
                                 ),
-                                items: const [
-                                  DropdownMenuItem(
-                                      value: '', child: Text('Todos')),
-                                  DropdownMenuItem(
-                                      value: 'scheduled',
-                                      child: Text('Agendado')),
-                                  DropdownMenuItem(
-                                      value: 'confirmed',
-                                      child: Text('Confirmado')),
-                                  DropdownMenuItem(
-                                      value: 'cancelled',
-                                      child: Text('Cancelado')),
-                                  DropdownMenuItem(
-                                      value: 'done', child: Text('Concluído')),
-                                  DropdownMenuItem(
-                                      value: 'no_show',
-                                      child: Text('Não compareceu')),
-                                ],
-                                onChanged: (value) async {
-                                  setState(() => _selectedStatus = value ?? '');
-                                  await _loadAppointments();
-                                },
-                              ),
-                              const SizedBox(height: 8),
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton(
-                                      onPressed: () =>
-                                          _setViewMode(AgendaViewMode.day),
-                                      style: OutlinedButton.styleFrom(
-                                        backgroundColor:
-                                            _viewMode == AgendaViewMode.day
-                                                ? AppColors.primary
-                                                : null,
+                                const SizedBox(height: 10),
+                                DropdownButtonFormField<String?>(
+                                  initialValue: _selectedProfessionalId,
+                                  decoration: const InputDecoration(
+                                      labelText: 'Profissional'),
+                                  items: [
+                                    const DropdownMenuItem<String?>(
+                                      value: null,
+                                      child: Text('Todos'),
+                                    ),
+                                    ..._professionals.map(
+                                      (item) => DropdownMenuItem<String?>(
+                                        value: item.id,
+                                        child: Text(item.label),
                                       ),
-                                      child: Text(
-                                        'Dia',
-                                        style: TextStyle(
-                                          color: _viewMode == AgendaViewMode.day
-                                              ? Colors.white
-                                              : null,
+                                    ),
+                                  ],
+                                  onChanged: (value) async {
+                                    setState(
+                                        () => _selectedProfessionalId = value);
+                                    await _loadAppointments();
+                                  },
+                                ),
+                                const SizedBox(height: 8),
+                                DropdownButtonFormField<String>(
+                                  initialValue: _selectedStatus,
+                                  isDense: true,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Status',
+                                    contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 10),
+                                  ),
+                                  items: const [
+                                    DropdownMenuItem(
+                                        value: '', child: Text('Todos')),
+                                    DropdownMenuItem(
+                                        value: 'scheduled',
+                                        child: Text('Agendado')),
+                                    DropdownMenuItem(
+                                        value: 'confirmed',
+                                        child: Text('Confirmado')),
+                                    DropdownMenuItem(
+                                        value: 'cancelled',
+                                        child: Text('Cancelado')),
+                                    DropdownMenuItem(
+                                        value: 'done',
+                                        child: Text('Concluído')),
+                                    DropdownMenuItem(
+                                        value: 'no_show',
+                                        child: Text('Não compareceu')),
+                                  ],
+                                  onChanged: (value) async {
+                                    setState(
+                                        () => _selectedStatus = value ?? '');
+                                    await _loadAppointments();
+                                  },
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: OutlinedButton(
+                                        onPressed: () =>
+                                            _setViewMode(AgendaViewMode.day),
+                                        style: OutlinedButton.styleFrom(
+                                          backgroundColor:
+                                              _viewMode == AgendaViewMode.day
+                                                  ? AppColors.primary
+                                                  : null,
+                                        ),
+                                        child: Text(
+                                          'Dia',
+                                          style: TextStyle(
+                                            color:
+                                                _viewMode == AgendaViewMode.day
+                                                    ? Colors.white
+                                                    : null,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: OutlinedButton(
-                                      onPressed: () =>
-                                          _setViewMode(AgendaViewMode.week),
-                                      style: OutlinedButton.styleFrom(
-                                        backgroundColor:
-                                            _viewMode == AgendaViewMode.week
-                                                ? AppColors.primary
-                                                : null,
-                                      ),
-                                      child: Text(
-                                        'Semana',
-                                        style: TextStyle(
-                                          color:
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: OutlinedButton(
+                                        onPressed: () =>
+                                            _setViewMode(AgendaViewMode.week),
+                                        style: OutlinedButton.styleFrom(
+                                          backgroundColor:
                                               _viewMode == AgendaViewMode.week
-                                                  ? Colors.white
+                                                  ? AppColors.primary
                                                   : null,
+                                        ),
+                                        child: Text(
+                                          'Semana',
+                                          style: TextStyle(
+                                            color:
+                                                _viewMode == AgendaViewMode.week
+                                                    ? Colors.white
+                                                    : null,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: OutlinedButton(
-                                      onPressed: () =>
-                                          _setViewMode(AgendaViewMode.month),
-                                      style: OutlinedButton.styleFrom(
-                                        backgroundColor:
-                                            _viewMode == AgendaViewMode.month
-                                                ? AppColors.primary
-                                                : null,
-                                      ),
-                                      child: Text(
-                                        'Mês',
-                                        style: TextStyle(
-                                          color:
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: OutlinedButton(
+                                        onPressed: () =>
+                                            _setViewMode(AgendaViewMode.month),
+                                        style: OutlinedButton.styleFrom(
+                                          backgroundColor:
                                               _viewMode == AgendaViewMode.month
-                                                  ? Colors.white
+                                                  ? AppColors.primary
                                                   : null,
                                         ),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                      child: Card(
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            children: [
-                              Row(
-                                children: [
-                                  IconButton(
-                                    tooltip: _previousLabel(),
-                                    onPressed: () => _shiftAgendaDate(
-                                        _viewMode == AgendaViewMode.week
-                                            ? -7
-                                            : -1),
-                                    icon: const Icon(Icons.chevron_left),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: InkWell(
-                                      onTap: _pickAgendaDate,
-                                      child: Center(
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const Icon(Icons.calendar_today,
-                                                size: 16),
-                                            const SizedBox(width: 6),
-                                            Text(
-                                              _formatShortDate(_selectedDate),
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .titleMedium,
-                                            ),
-                                          ],
+                                        child: Text(
+                                          'Mês',
+                                          style: TextStyle(
+                                            color: _viewMode ==
+                                                    AgendaViewMode.month
+                                                ? Colors.white
+                                                : null,
+                                          ),
                                         ),
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  IconButton(
-                                    tooltip: _nextLabel(),
-                                    onPressed: () => _shiftAgendaDate(
-                                        _viewMode == AgendaViewMode.week
-                                            ? 7
-                                            : 1),
-                                    icon: const Icon(Icons.chevron_right),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              OutlinedButton.icon(
-                                style: OutlinedButton.styleFrom(
-                                  minimumSize: const Size.fromHeight(42),
+                                  ],
                                 ),
-                                onPressed:
-                                    _actionLoading ? null : _loadAppointments,
-                                icon: const Icon(Icons.refresh, size: 16),
-                                label: const Text('Atualizar agenda'),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    _buildPunctualityAlerts(),
-                    if (_viewMode == AgendaViewMode.day)
-                      _buildDayList()
-                    else
-                      _buildCalendarView(),
-                  ],
-                ),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: Card(
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              children: [
+                                Row(
+                                  children: [
+                                    IconButton(
+                                      tooltip: _previousLabel(),
+                                      onPressed: () => _shiftAgendaDate(
+                                          _viewMode == AgendaViewMode.week
+                                              ? -7
+                                              : -1),
+                                      icon: const Icon(Icons.chevron_left),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: InkWell(
+                                        onTap: _pickAgendaDate,
+                                        child: Center(
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const Icon(Icons.calendar_today,
+                                                  size: 16),
+                                              const SizedBox(width: 6),
+                                              Text(
+                                                _agendaDateLabel(),
+                                                style: Theme.of(context)
+                                                    .textTheme
+                                                    .titleMedium,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    IconButton(
+                                      tooltip: _nextLabel(),
+                                      onPressed: () => _shiftAgendaDate(
+                                          _viewMode == AgendaViewMode.week
+                                              ? 7
+                                              : 1),
+                                      icon: const Icon(Icons.chevron_right),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      _buildPunctualityAlerts(),
+                      _buildAgendaRangeViewport(),
+                    ],
+                  ),
+      ),
     );
   }
 }
