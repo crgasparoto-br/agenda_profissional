@@ -2,7 +2,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:local_auth_android/local_auth_android.dart';
-import 'package:local_auth_darwin/local_auth_darwin.dart';
+import 'package:local_auth_darwin/types/auth_messages_ios.dart';
+import 'package:local_auth_darwin/types/auth_messages_macos.dart';
 
 class BiometricCredentials {
   const BiometricCredentials({
@@ -81,7 +82,7 @@ class BiometricAuthService {
       return await _localAuth.authenticate(
         localizedReason: 'Confirme sua identidade para entrar no app',
         authMessages: [
-          AndroidAuthMessages(
+          const AndroidAuthMessages(
             signInTitle: 'Confirme sua identidade',
             biometricHint: 'Use sua biometria',
             biometricNotRecognized:
@@ -97,18 +98,11 @@ class BiometricAuthService {
             goToSettingsDescription:
                 'A biometria nao esta configurada neste aparelho. Ative-a nos ajustes de seguranca.',
           ),
-          IOSAuthMessages(
-            lockOut:
-                'A biometria esta desativada. Bloqueie e desbloqueie a tela para tentar novamente.',
-            goToSettingsButton: 'Abrir ajustes',
-            goToSettingsDescription:
-                'Ative o Face ID ou Touch ID nos ajustes do aparelho para continuar.',
+          const IOSAuthMessages(
             cancelButton: 'OK',
             localizedFallbackTitle: 'Usar senha do aparelho',
           ),
-          MacOSAuthMessages(
-            lockOut:
-                'A biometria esta desativada. Reinicie o computador e tente novamente.',
+          const MacOSAuthMessages(
             cancelButton: 'OK',
             localizedFallbackTitle: 'Usar senha do Mac',
           ),

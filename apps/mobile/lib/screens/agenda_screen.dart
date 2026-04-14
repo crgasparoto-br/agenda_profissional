@@ -2094,9 +2094,13 @@ class _AgendaScreenState extends State<AgendaScreen> {
                               ],
                             ),
                           ),
-                          const Icon(
-                            Icons.chevron_right_rounded,
-                            color: Color(0xFF7A8492),
+                          TextButton.icon(
+                            onPressed: () => _openDay(day),
+                            icon: const Icon(
+                              Icons.arrow_forward_rounded,
+                              size: 18,
+                            ),
+                            label: const Text('Ver dia'),
                           ),
                         ],
                       ),

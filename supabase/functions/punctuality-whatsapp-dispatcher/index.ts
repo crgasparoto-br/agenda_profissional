@@ -90,9 +90,10 @@ function buildWhatsappMessage(row: WhatsappNotificationRow, appointment: Appoint
 async function sendWhatsappMessage(
   to: string,
   message: string,
-  phoneNumberId: string
+  phoneNumberId: string,
+  accessTokenOverride: string | null = null
 ): Promise<{ messageId: string | null; error: string | null; raw?: Record<string, unknown> }> {
-  const accessToken = Deno.env.get("WHATSAPP_ACCESS_TOKEN");
+  const accessToken = accessTokenOverride ?? Deno.env.get("WHATSAPP_ACCESS_TOKEN");
   const apiVersion = Deno.env.get("WHATSAPP_API_VERSION") ?? "v22.0";
   if (!accessToken || !phoneNumberId) {
     return { messageId: null, error: "Missing WHATSAPP_ACCESS_TOKEN or phone_number_id" };
@@ -197,6 +198,19 @@ Deno.serve(async (req) => {
   let sent = 0;
   let failed = 0;
 
+  async function resolveWhatsappAccessToken(tenantId: string): Promise<string | null> {
+    const { data: credential } = await admin
+      .from("whatsapp_meta_credentials")
+      .select("access_token")
+      .eq("tenant_id", tenantId)
+      .limit(1)
+      .maybeSingle();
+
+    const tenantToken = (credential as { access_token?: string } | null)?.access_token?.trim() ?? "";
+    if (tenantToken) return tenantToken;
+    return Deno.env.get("WHATSAPP_ACCESS_TOKEN") ?? null;
+  }
+
   for (const row of rows) {
     const { data: appointment } = await admin
       .from("appointments")
@@ -280,6 +294,7 @@ Deno.serve(async (req) => {
     }
 
     const message = buildWhatsappMessage(row, appointmentTarget);
+    const accessToken = await resolveWhatsappAccessToken(row.tenant_id);
 
     if (dispatchProvider === "none") {
       await admin
@@ -304,7 +319,7 @@ Deno.serve(async (req) => {
       continue;
     }
 
-    const sendResult = await sendWhatsappMessage(to, message, phoneNumberId);
+    const sendResult = await sendWhatsappMessage(to, message, phoneNumberId, accessToken);
     if (sendResult.error) {
       await admin
         .from("notification_log")

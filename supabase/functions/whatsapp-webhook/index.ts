@@ -98,6 +98,7 @@ type AppointmentExecutionResult = {
 type TenantChannelConfig = {
   tenantId: string;
   outboundPhoneNumberId: string | null;
+  accessToken: string | null;
   aiEnabled: boolean;
   audioEnabled: boolean;
   aiModel: string | null;
@@ -383,6 +384,7 @@ async function resolveTenantChannelConfig(
       return {
         tenantId: typed.tenant_id,
         outboundPhoneNumberId: typed.phone_number_id,
+        accessToken: await resolveWhatsappAccessToken(admin, typed.tenant_id),
         aiEnabled: typed.ai_enabled,
         audioEnabled: typed.audio_enabled,
         aiModel: typed.ai_model,
@@ -397,6 +399,7 @@ async function resolveTenantChannelConfig(
   return {
     tenantId: fallbackTenantId,
     outboundPhoneNumberId: phoneNumberId ?? Deno.env.get("WHATSAPP_PHONE_NUMBER_ID") ?? null,
+    accessToken: Deno.env.get("WHATSAPP_ACCESS_TOKEN") ?? null,
     aiEnabled: true,
     audioEnabled: isTruthyEnv(Deno.env.get("WHATSAPP_AUDIO_ENABLED")),
     aiModel: null,
@@ -404,8 +407,23 @@ async function resolveTenantChannelConfig(
   };
 }
 
-async function fetchWhatsappMediaDetails(mediaId: string): Promise<WhatsappMediaDetails> {
-  const accessToken = Deno.env.get("WHATSAPP_ACCESS_TOKEN");
+async function resolveWhatsappAccessToken(
+  admin: ReturnType<typeof createClient>,
+  tenantId: string
+): Promise<string | null> {
+  const { data: credential } = await admin
+    .from("whatsapp_meta_credentials")
+    .select("access_token")
+    .eq("tenant_id", tenantId)
+    .limit(1)
+    .maybeSingle();
+
+  const tenantToken = (credential as { access_token?: string } | null)?.access_token?.trim() ?? "";
+  if (tenantToken) return tenantToken;
+  return Deno.env.get("WHATSAPP_ACCESS_TOKEN") ?? null;
+}
+
+async function fetchWhatsappMediaDetails(mediaId: string, accessToken: string | null): Promise<WhatsappMediaDetails> {
   const apiVersion = Deno.env.get("WHATSAPP_API_VERSION") ?? "v22.0";
   if (!accessToken) {
     throw new Error("Missing WHATSAPP_ACCESS_TOKEN");
@@ -440,8 +458,7 @@ async function fetchWhatsappMediaDetails(mediaId: string): Promise<WhatsappMedia
   };
 }
 
-async function downloadWhatsappMedia(details: WhatsappMediaDetails): Promise<Blob> {
-  const accessToken = Deno.env.get("WHATSAPP_ACCESS_TOKEN");
+async function downloadWhatsappMedia(details: WhatsappMediaDetails, accessToken: string | null): Promise<Blob> {
   if (!accessToken) {
     throw new Error("Missing WHATSAPP_ACCESS_TOKEN");
   }
@@ -549,8 +566,8 @@ async function resolveInboundMessageContent(
   }
 
   try {
-    const details = await fetchWhatsappMediaDetails(audioId);
-    const audioBlob = await downloadWhatsappMedia(details);
+    const details = await fetchWhatsappMediaDetails(audioId, channelConfig.accessToken);
+    const audioBlob = await downloadWhatsappMedia(details, channelConfig.accessToken);
     const transcriptionText = await transcribeAudioBlob(audioBlob, details.mimeType);
     if (!transcriptionText) {
       return {
@@ -2766,9 +2783,10 @@ Agora atual: ${new Date().toISOString()}`;
 async function sendWhatsappMessage(
   to: string,
   message: string,
-  phoneNumberIdFromWebhook: string | null
+  phoneNumberIdFromWebhook: string | null,
+  accessTokenOverride: string | null = null
 ): Promise<{ messageId: string | null; error: string | null }> {
-  const accessToken = Deno.env.get("WHATSAPP_ACCESS_TOKEN");
+  const accessToken = accessTokenOverride ?? Deno.env.get("WHATSAPP_ACCESS_TOKEN");
   const defaultPhoneNumberId = Deno.env.get("WHATSAPP_PHONE_NUMBER_ID");
   const apiVersion = Deno.env.get("WHATSAPP_API_VERSION") ?? "v22.0";
 
@@ -2962,7 +2980,8 @@ Deno.serve(async (req) => {
         const fallbackDelivery = await sendWhatsappMessage(
           rawPhone,
           inboundContent.autoReply,
-          channelConfig.outboundPhoneNumberId ?? item.phoneNumberId
+          channelConfig.outboundPhoneNumberId ?? item.phoneNumberId,
+          channelConfig.accessToken
         );
 
         await admin.from("whatsapp_messages").insert({
@@ -3727,7 +3746,8 @@ Deno.serve(async (req) => {
       const delivery = await sendWhatsappMessage(
         rawPhone,
         finalReply,
-        channelConfig.outboundPhoneNumberId ?? item.phoneNumberId
+        channelConfig.outboundPhoneNumberId ?? item.phoneNumberId,
+        channelConfig.accessToken
       );
 
       await admin.from("whatsapp_messages").insert({
