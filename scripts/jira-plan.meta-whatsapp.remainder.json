@@ -1,0 +1,189 @@
+{
+  "projectKey": "KAN",
+  "issues": [
+    {
+      "ref": "task-meta-web-onboarding",
+      "type": "Tarefa",
+      "parent": "KAN-42",
+      "summary": "[Meta] Concluir onboarding Embedded Signup no web",
+      "description": "Objetivo\nFechar o fluxo de onboarding da Meta no web com UX clara, callbacks corretos e persistencia confiavel da conexao.\n\nEscopo\n- validar SDK da Meta\n- revisar retorno do Embedded Signup\n- confirmar code exchange e persistencia da integracao\n- revisar copy e estados da tela\n\nCriterios de aceite\n- usuario consegue iniciar e concluir a conexao no web\n- tela mostra estados connected, pending, error e disconnected com clareza\n- erros sao amigaveis e acionaveis",
+      "labels": ["meta", "whatsapp", "web", "ux"],
+      "subtasks": [
+        {
+          "summary": "Validar fluxo real do Embedded Signup com tenant de teste",
+          "description": "Executar um onboarding real e confirmar recebimento de code, sessionInfo, waba_id e phone_number_id."
+        },
+        {
+          "summary": "Revisar textos e estados da tela WhatsApp + IA no web",
+          "description": "Remover copy legado de fase anterior e deixar status, reconexao e desconexao claros para usuario leigo."
+        },
+        {
+          "summary": "Validar rotas de complete e disconnect no Next.js",
+          "description": "Confirmar autenticacao, comportamento com tenant invalido e mensagens amigaveis em falhas."
+        }
+      ]
+    },
+    {
+      "ref": "task-meta-token-lifecycle",
+      "type": "Tarefa",
+      "parent": "KAN-42",
+      "summary": "[Meta] Endurecer lifecycle do token e saude da integracao",
+      "description": "Objetivo\nGarantir que a credencial da Meta por tenant seja valida, observavel e sustentavel em producao.\n\nEscopo\n- confirmar modelo oficial do token retornado pelo Embedded Signup\n- tratar expiracao, revogacao e reconexao\n- persistir metadados de saude e ultimo sync\n\nCriterios de aceite\n- estrategia de renovacao ou reconexao definida\n- falhas de token ficam visiveis no sistema\n- estados pending/error/connected sao confiaveis",
+      "labels": ["meta", "whatsapp", "security", "ops"],
+      "subtasks": [
+        {
+          "summary": "Validar com a documentacao da Meta o tipo de token retornado no code exchange",
+          "description": "Confirmar se o token salvo hoje e suficiente para Graph API e para operacao continuada por tenant."
+        },
+        {
+          "summary": "Persistir e expor metadados de saude da conexao",
+          "description": "Definir como salvar last_synced_at, ultimo erro relevante e informacoes de validade da credencial."
+        },
+        {
+          "summary": "Definir fluxo de reconexao e expiracao",
+          "description": "Especificar e implementar comportamento quando a Meta invalidar a credencial do tenant."
+        }
+      ]
+    },
+    {
+      "ref": "task-meta-webhook-dispatch",
+      "type": "Tarefa",
+      "parent": "KAN-42",
+      "summary": "[Meta] Adaptar webhook e envios para operacao 100 por cento por tenant",
+      "description": "Objetivo\nConcluir a migracao operacional para que webhook, audio e dispatchers usem a credencial do tenant conectado.\n\nEscopo\n- revisar whatsapp-webhook\n- revisar dispatcher de pontualidade\n- validar downloads de audio e envios de resposta\n- reduzir dependencia do fallback global\n\nCriterios de aceite\n- operacao usa token do tenant quando houver integracao conectada\n- fallback global fica restrito ao legado controlado\n- logs e erros deixam claro qual credencial foi usada",
+      "labels": ["meta", "whatsapp", "backend", "multi-tenant"],
+      "subtasks": [
+        {
+          "summary": "Validar resolucao de token por tenant no whatsapp-webhook",
+          "description": "Cobrir inbound, outbound, transcricao de audio e respostas automaticas."
+        },
+        {
+          "summary": "Validar resolucao de token por tenant no punctuality-whatsapp-dispatcher",
+          "description": "Garantir que notificacoes de pontualidade usem a credencial correta do tenant."
+        },
+        {
+          "summary": "Definir estrategia para desligar fallback global com seguranca",
+          "description": "Criar plano para remover ou limitar o uso de WHATSAPP_ACCESS_TOKEN global apos a migracao."
+        }
+      ]
+    },
+    {
+      "ref": "task-meta-canais-desconexao",
+      "type": "Tarefa",
+      "parent": "KAN-42",
+      "summary": "[Meta] Ajustar comportamento de canais apos conexao e desconexao",
+      "description": "Objetivo\nEvitar canais obsoletos, roteamento errado e inconsistencias quando a conta Meta for conectada, trocada ou desconectada.\n\nEscopo\n- definir politica de criacao do canal\n- tratar invalidez de phone_number_id antigo\n- revisar o que acontece com whatsapp_channel_settings na desconexao\n\nCriterios de aceite\n- nao existe uso silencioso de phone_number_id obsoleto\n- desconectar a conta deixa o tenant em estado coerente\n- UX e backend concordam sobre quando o canal pode operar",
+      "labels": ["meta", "whatsapp", "backend", "produto"],
+      "subtasks": [
+        {
+          "summary": "Definir se o canal deve ser auto-criado ou confirmado manualmente",
+          "description": "Tomar decisao de produto para o fluxo final apos conectar a conta Meta."
+        },
+        {
+          "summary": "Revisar limpeza ou inativacao de whatsapp_channel_settings ao desconectar",
+          "description": "Evitar canal ativo apontando para configuracao antiga apos desconexao."
+        },
+        {
+          "summary": "Bloquear uso de configuracao obsoleta em tenants desconectados",
+          "description": "Garantir que o backend nao opere com dados antigos quando a integracao nao estiver connected."
+        }
+      ]
+    },
+    {
+      "ref": "task-meta-mobile-ux",
+      "type": "Tarefa",
+      "parent": "KAN-42",
+      "summary": "[Meta] Finalizar experiencia mobile para operacao da conta Meta",
+      "description": "Objetivo\nDeixar o mobile claro para acompanhamento da integracao, mesmo que a conexao principal aconteca no web.\n\nEscopo\n- revisar estados e copy no mobile\n- orientar conexao via web quando necessario\n- alinhar checklist e mensagens com o fluxo atual\n\nCriterios de aceite\n- usuario entende no mobile se a conta esta conectada, pendente ou com erro\n- nao sobra copy de fase anterior\n- fluxo fica claro para usuario leigo",
+      "labels": ["meta", "whatsapp", "mobile", "ux"],
+      "subtasks": [
+        {
+          "summary": "Atualizar copy legado do fluxo Meta no mobile",
+          "description": "Remover referencias de proxima fase e alinhar a tela ao estado real da implementacao."
+        },
+        {
+          "summary": "Definir orientacao de conexao via web no mobile",
+          "description": "Explicar de forma simples onde conectar a conta Meta e como voltar para acompanhar o status pelo app."
+        },
+        {
+          "summary": "Validar estados connected, pending, error e disconnected no mobile",
+          "description": "Garantir consistencia entre dados exibidos no mobile e integracao real do tenant."
+        }
+      ]
+    },
+    {
+      "ref": "task-meta-observabilidade",
+      "type": "Tarefa",
+      "parent": "KAN-42",
+      "summary": "[Meta] Melhorar observabilidade e suporte operacional da integracao",
+      "description": "Objetivo\nDar visibilidade para falhas de onboarding, credencial invalida e ultimo sync da conta Meta.\n\nEscopo\n- revisar logs e mensagens de erro\n- tornar estados de suporte acionaveis\n- criar sinais de saude para troubleshooting\n\nCriterios de aceite\n- suporte consegue diagnosticar falha de conexao sem depender de tentativa e erro\n- sistema registra ultimo erro e ultimo sync de forma confiavel\n- mensagens exibidas para usuario sao amigaveis",
+      "labels": ["meta", "whatsapp", "observability", "support"],
+      "subtasks": [
+        {
+          "summary": "Mapear erros tecnicos da Meta para mensagens acionaveis",
+          "description": "Cobrir onboarding, code exchange, credencial invalida e falhas de envio."
+        },
+        {
+          "summary": "Definir indicadores minimos de saude da integracao",
+          "description": "Expor ultimo sync, ultimo erro relevante e situacao operacional da conta."
+        },
+        {
+          "summary": "Preparar trilha de suporte para reconexao e troubleshooting",
+          "description": "Documentar diagnosticos rapidos para time interno e atendimento ao cliente."
+        }
+      ]
+    },
+    {
+      "ref": "task-meta-docs-runbook",
+      "type": "Tarefa",
+      "parent": "KAN-42",
+      "summary": "[Meta] Atualizar documentacao e runbooks da integracao",
+      "description": "Objetivo\nAtualizar a documentacao do projeto para refletir a arquitetura por tenant e o fluxo real de operacao com a Meta.\n\nEscopo\n- revisar README\n- revisar docs do dispatcher\n- documentar envs, deploy e suporte\n\nCriterios de aceite\n- nao sobra documentacao apontando apenas para token global\n- equipe sabe configurar e operar o fluxo por tenant\n- checklist de deploy fica documentado",
+      "labels": ["meta", "whatsapp", "docs", "ops"],
+      "subtasks": [
+        {
+          "summary": "Atualizar README com arquitetura Meta por tenant",
+          "description": "Revisar variaveis, premissas e descricao do fluxo de onboarding e operacao."
+        },
+        {
+          "summary": "Atualizar docs de dispatcher e integracao WhatsApp",
+          "description": "Refletir uso de credencial do tenant com fallback legado controlado."
+        },
+        {
+          "summary": "Escrever runbook de deploy e suporte da Meta",
+          "description": "Documentar setup, deploy, validacao, reconexao e rollback."
+        }
+      ]
+    },
+    {
+      "ref": "task-meta-homologacao-go-live",
+      "type": "Tarefa",
+      "parent": "KAN-42",
+      "summary": "[Meta] Executar checklist de deploy, homologacao e go-live",
+      "description": "Objetivo\nExecutar a ativacao real da funcionalidade com a Meta e garantir um go-live controlado.\n\nEscopo\n- configuracao de ambientes\n- deploy web e functions\n- configuracao da Meta\n- teste de ponta a ponta\n\nCriterios de aceite\n- tenant real consegue conectar a conta\n- mensagens entram e saem pelo canal conectado\n- checklist operacional fica concluido e rastreavel",
+      "labels": ["meta", "whatsapp", "deploy", "qa"],
+      "subtasks": [
+        {
+          "summary": "Configurar variaveis do web para Embedded Signup e Supabase",
+          "description": "Preencher NEXT_PUBLIC_META_APP_ID, NEXT_PUBLIC_META_WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID, NEXT_PUBLIC_META_GRAPH_API_VERSION, META_APP_SECRET e SUPABASE_SERVICE_ROLE_KEY."
+        },
+        {
+          "summary": "Aplicar migrations e publicar servicos atualizados",
+          "description": "Executar supabase db push e publicar whatsapp-webhook e punctuality-whatsapp-dispatcher com a nova logica por tenant."
+        },
+        {
+          "summary": "Configurar app da Meta, Embedded Signup e callback do webhook",
+          "description": "Validar App ID, Config ID, permissao do produto, callback URL, verify token e subscription do app."
+        },
+        {
+          "summary": "Executar teste E2E com tenant real",
+          "description": "Conectar conta Meta, validar persistencia, cadastrar canal, enviar mensagem real e confirmar resposta e roteamento."
+        },
+        {
+          "summary": "Fechar checklist de go-live e rollback",
+          "description": "Registrar validacoes, riscos residuais, fallback legado e passos de reversao em caso de falha."
+        }
+      ]
+    }
+  ]
+}

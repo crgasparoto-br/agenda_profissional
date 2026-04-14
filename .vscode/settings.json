@@ -52,5 +52,21 @@
             "approve": true,
             "matchCommandLine": true
         }
-    }
+    },
+    "atlascode.jira.lastCreatePreSelectedValues": {
+        "siteId": "59a902ec-427c-4502-975b-604db3a108b0",
+        "projectKey": "KAN",
+        "issueTypeId": ""
+    },
+    "atlascode.jira.jqlList": [
+        {
+            "id": "kan-project-issues",
+            "enabled": true,
+            "monitor": true,
+            "name": "KAN Issues",
+            "query": "project = KAN ORDER BY updated DESC",
+            "siteId": "",
+            "filterId": null
+        }
+    ]
 }

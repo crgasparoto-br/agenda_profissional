@@ -103,6 +103,57 @@ supabase functions deploy whatsapp-webhook
 - `npm run supabase:functions:deploy`
 - `npm run lint:web`
 - `npm run typecheck`
+- `npm run jira`
+- `npm run jira:check`
+- `npm run jira:plan`
+
+## Automacao Jira
+
+Ha um CLI local em `scripts/jira-cli.mjs` para operar backlog e execucao diretamente no Jira Cloud.
+
+Setup rapido:
+
+1. Copie `.env.example` para `.env.local`
+2. Preencha `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN` e `JIRA_PROJECT_KEY`
+3. Para trocar de espaco/projeto, altere apenas `JIRA_PROJECT_KEY`
+4. Rode:
+
+```bash
+npm run jira:check
+```
+
+Exemplos:
+
+```bash
+npm run jira -- project:info
+npm run jira -- project:info --project OUTRO
+npm run jira -- epic:create --summary "Onboarding MVP" --description "Fluxo inicial"
+npm run jira -- issue:create --type Task --summary "Criar dashboard"
+npm run jira -- transition:list AP-123
+npm run jira -- issue:transition AP-123 --to "In Progress"
+npm run jira -- plan:apply --file scripts/jira-plan.example.json --dry-run
+```
+
+Documentacao completa: [docs/jira-workflow.md](/d:/SolverIT/agenda_profissional/docs/jira-workflow.md)
+
+## Extensao VS Code para Jira
+
+Existe uma extensao local em `.tools/integracao_jira` que usa o CLI do Jira do projeto para operar tudo pelo VS Code.
+
+Ela oferece:
+- menu rapido no Command Palette
+- status bar com acesso ao Jira do projeto
+- criacao de epic, issue e subtask
+- edicao de issue existente
+- comentarios, transicoes, busca e aplicacao de plano JSON
+- atribuicao de responsavel e link entre issues
+
+Para desenvolver ou testar:
+
+1. Abra a pasta da extensao no VS Code
+2. Pressione `F5`
+3. Na janela de Extension Development Host, abra este workspace
+4. Execute `Integracao Jira: Menu`
 
 ## Fluxo MVP
 

@@ -1,0 +1,132 @@
+{
+  "name": "integracao-jira",
+  "displayName": "Integracao Jira",
+  "description": "Opera o Jira Cloud do workspace atual direto do VS Code usando o CLI local.",
+  "version": "0.1.1",
+  "publisher": "solverit-local",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "files": [
+    "extension.js",
+    "package.json",
+    "README.md",
+    "LICENSE.txt",
+    ".vscode/launch.json"
+  ],
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "jira",
+    "atlassian",
+    "integracao-jira",
+    "kanban"
+  ],
+  "main": "./extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:integracaoJira.openMenu",
+    "onCommand:integracaoJira.checkConnection",
+    "onCommand:integracaoJira.projectInfo",
+    "onCommand:integracaoJira.createEpic",
+    "onCommand:integracaoJira.createIssue",
+    "onCommand:integracaoJira.updateIssue",
+    "onCommand:integracaoJira.createSubtask",
+    "onCommand:integracaoJira.addComment",
+    "onCommand:integracaoJira.assignIssue",
+    "onCommand:integracaoJira.linkIssues",
+    "onCommand:integracaoJira.transitionIssue",
+    "onCommand:integracaoJira.searchIssues",
+    "onCommand:integracaoJira.applyPlan"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "integracaoJira.openMenu",
+        "title": "Integracao Jira: Menu"
+      },
+      {
+        "command": "integracaoJira.checkConnection",
+        "title": "Integracao Jira: Check Connection"
+      },
+      {
+        "command": "integracaoJira.projectInfo",
+        "title": "Integracao Jira: Project Info"
+      },
+      {
+        "command": "integracaoJira.createEpic",
+        "title": "Integracao Jira: Create Epic"
+      },
+      {
+        "command": "integracaoJira.createIssue",
+        "title": "Integracao Jira: Create Issue"
+      },
+      {
+        "command": "integracaoJira.updateIssue",
+        "title": "Integracao Jira: Update Issue"
+      },
+      {
+        "command": "integracaoJira.createSubtask",
+        "title": "Integracao Jira: Create Subtask"
+      },
+      {
+        "command": "integracaoJira.addComment",
+        "title": "Integracao Jira: Add Comment"
+      },
+      {
+        "command": "integracaoJira.assignIssue",
+        "title": "Integracao Jira: Assign Issue"
+      },
+      {
+        "command": "integracaoJira.linkIssues",
+        "title": "Integracao Jira: Link Issues"
+      },
+      {
+        "command": "integracaoJira.transitionIssue",
+        "title": "Integracao Jira: Transition Issue"
+      },
+      {
+        "command": "integracaoJira.searchIssues",
+        "title": "Integracao Jira: Search Issues"
+      },
+      {
+        "command": "integracaoJira.applyPlan",
+        "title": "Integracao Jira: Apply Plan"
+      }
+    ],
+    "configuration": {
+      "title": "Integracao Jira",
+      "properties": {
+        "integracaoJira.nodePath": {
+          "type": "string",
+          "default": "node",
+          "description": "Executavel Node usado para chamar o CLI do Jira."
+        },
+        "integracaoJira.cliPath": {
+          "type": "string",
+          "default": "${workspaceFolder}/scripts/jira-cli.mjs",
+          "description": "Caminho para o CLI local do Jira."
+        },
+        "integracaoJira.projectKey": {
+          "type": "string",
+          "default": "",
+          "description": "Project key padrao. Se vazio, o CLI usa JIRA_PROJECT_KEY do arquivo .env.local."
+        },
+        "integracaoJira.planFilePath": {
+          "type": "string",
+          "default": "${workspaceFolder}/scripts/jira-plan.example.json",
+          "description": "Arquivo de plano usado no comando de aplicacao em lote."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "package": "npx @vscode/vsce package"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^3.2.2"
+  }
+}

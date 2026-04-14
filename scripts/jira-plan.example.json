@@ -1,0 +1,48 @@
+{
+  "projectKey": "KAN",
+  "epics": [
+    {
+      "ref": "epic-onboarding",
+      "summary": "Onboarding inicial do AgendaProfi",
+      "description": "Organizar o fluxo de entrada do profissional com foco em ativacao rapida e clareza de valor.",
+      "labels": ["mvp", "onboarding"],
+      "children": [
+        {
+          "ref": "task-tela-login",
+          "type": "Task",
+          "summary": "Ajustar tela de login para o sistema visual Agenda Profissional",
+          "description": "Aplicar tokens oficiais, card limpo e CTA principal bem destacado.",
+          "labels": ["ui", "web"],
+          "subtasks": [
+            {
+              "summary": "Revisar contraste e estados de foco",
+              "description": "Garantir WCAG AA em inputs, botoes e feedbacks de erro."
+            }
+          ]
+        },
+        {
+          "ref": "task-copy-onboarding",
+          "type": "Task",
+          "summary": "Definir copy das telas de onboarding",
+          "description": "Usar mensagens orientadas a beneficio e no-show reduction.",
+          "labels": ["copy", "ux"],
+          "links": [
+            {
+              "type": "blocks",
+              "targetRef": "task-tela-login"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "issues": [
+    {
+      "ref": "task-backlog-grooming",
+      "type": "Task",
+      "summary": "Preparar backlog MVP inicial",
+      "description": "Organizar prioridades do MVP com foco em reducao de faltas, conflito de agenda e ganho operacional.",
+      "labels": ["produto", "mvp"]
+    }
+  ]
+}
