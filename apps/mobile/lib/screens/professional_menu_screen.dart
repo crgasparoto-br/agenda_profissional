@@ -120,17 +120,6 @@ class _ProfessionalMenuScreenState extends State<ProfessionalMenuScreen> {
           const SizedBox(height: 8),
           Card(
             child: ListTile(
-              leading: const Icon(Icons.manage_search_outlined),
-              title: const Text('Auditoria de Pontualidade'),
-              subtitle: const Text('Métricas e investigação por agendamento'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () =>
-                  Navigator.pushNamed(context, '/auditoria-pontualidade'),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Card(
-            child: ListTile(
               leading: const Icon(Icons.add_circle_outline),
               title: const Text('Novo agendamento'),
               subtitle: const Text('Crie um novo agendamento'),
@@ -202,6 +191,14 @@ class _ProfessionalMenuScreenState extends State<ProfessionalMenuScreen> {
                   title: const Text('Notificações push'),
                   trailing: const Icon(Icons.chevron_right),
                   onTap: () => Navigator.pushNamed(context, '/push'),
+                ),
+                ListTile(
+                  leading: const Icon(Icons.manage_search_outlined),
+                  title: const Text('Auditoria de Pontualidade'),
+                  subtitle: const Text('Métricas e investigação por agendamento'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () =>
+                      Navigator.pushNamed(context, '/auditoria-pontualidade'),
                 ),
               ],
             ),

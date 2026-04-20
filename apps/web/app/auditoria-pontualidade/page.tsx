@@ -24,6 +24,8 @@ type EtaSnapshotMetricRow = {
 
 type InvestigationAppointmentRow = {
   id: string;
+  tenant_id: string;
+  client_id: string | null;
   starts_at: string;
   status: string;
   punctuality_status: PunctualityStatus | null;
@@ -312,7 +314,7 @@ export default function PunctualityAuditPage() {
     const { data: appointmentData, error: appointmentError } = await supabase
       .from("appointments")
       .select(
-        "id, starts_at, status, punctuality_status, clients(full_name), professionals(name), services(name)"
+        "id, tenant_id, client_id, starts_at, status, punctuality_status, clients(full_name), professionals(name), services(name)"
       )
       .eq("id", normalizedId)
       .maybeSingle();
@@ -395,6 +397,22 @@ export default function PunctualityAuditPage() {
     if (revokeError) {
       setInvestigationError(revokeError.message);
       return;
+    }
+
+    if (investigationData.appointment.client_id) {
+      const { error: clientUpdateError } = await supabase
+        .from("clients")
+        .update({
+          location_sharing_enabled: false,
+          location_sharing_authorized_at: null
+        } as any)
+        .eq("tenant_id", investigationData.appointment.tenant_id)
+        .eq("id", investigationData.appointment.client_id);
+
+      if (clientUpdateError) {
+        setInvestigationError(clientUpdateError.message);
+        return;
+      }
     }
 
     await loadInvestigationByAppointmentId(investigationData.appointment.id);

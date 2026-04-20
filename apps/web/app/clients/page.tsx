@@ -8,30 +8,93 @@ type ClientRow = {
   id: string;
   full_name: string;
   phone: string | null;
+  email: string | null;
   notes: string | null;
+  birthday: string | null;
+  preferred_contact_channel: string | null;
+  location_sharing_enabled: boolean;
+  location_sharing_authorized_at: string | null;
 };
+
+function todayDateInput() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function toAuthorizedAtIso(value: string) {
+  if (!value) return null;
+  return `${value}T12:00:00.000Z`;
+}
+
+function formatBirthday(value: string | null) {
+  if (!value) return "-";
+  const date = new Date(value + "T12:00:00");
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(date);
+}
+
+function formatAuthorizedAt(value: string | null) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return new Intl.DateTimeFormat("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(date);
+}
+
+function mapClientSchemaError(error: unknown, fallback: string) {
+  const message = error instanceof Error ? error.message : String(error);
+  const normalized = message.toLowerCase();
+
+  if (
+    normalized.includes("birthday") ||
+    normalized.includes("email") ||
+    normalized.includes("preferred_contact_channel") ||
+    normalized.includes("location_sharing_enabled") ||
+    normalized.includes("location_sharing_authorized_at")
+  ) {
+    return "O banco de dados ainda nao foi atualizado para a tela de clientes. Aplique as migrations pendentes do Supabase e tente novamente.";
+  }
+
+  return `${fallback}${message}`;
+}
 
 export default function ClientsPage() {
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
+  const [birthday, setBirthday] = useState("");
+  const [preferredContactChannel, setPreferredContactChannel] = useState("whatsapp");
+  const [locationSharingEnabled, setLocationSharingEnabled] = useState(false);
+  const [locationSharingAuthorizedAt, setLocationSharingAuthorizedAt] = useState("");
   const [status, setStatus] = useState<string | null>(null);
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [editFullName, setEditFullName] = useState("");
   const [editPhone, setEditPhone] = useState("");
+  const [editEmail, setEditEmail] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [editBirthday, setEditBirthday] = useState("");
+  const [editPreferredContactChannel, setEditPreferredContactChannel] = useState("whatsapp");
+  const [editLocationSharingEnabled, setEditLocationSharingEnabled] = useState(false);
+  const [editLocationSharingAuthorizedAt, setEditLocationSharingAuthorizedAt] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
     const supabase = getSupabaseBrowserClient();
     const { data, error: queryError } = await supabase
       .from("clients")
-      .select("id, full_name, phone, notes")
+      .select("id, full_name, phone, email, notes, birthday, preferred_contact_channel, location_sharing_enabled, location_sharing_authorized_at")
       .order("created_at", { ascending: false });
 
     if (queryError) {
-      setError(queryError.message);
+      setError(mapClientSchemaError(queryError, "Erro ao carregar clientes: "));
       return;
     }
 
@@ -56,19 +119,31 @@ export default function ClientsPage() {
 
     const { error: insertError } = await supabase.from("clients").insert({
       tenant_id: tenantId,
-      full_name: fullName,
+      full_name: fullName.trim(),
       phone: normalizePhone(phone) || null,
-      notes: notes || null
-    });
+      email: email.trim() || null,
+      notes: notes.trim() || null,
+      birthday: birthday || null,
+      preferred_contact_channel: preferredContactChannel,
+      location_sharing_enabled: locationSharingEnabled,
+      location_sharing_authorized_at: locationSharingEnabled
+        ? toAuthorizedAtIso(locationSharingAuthorizedAt || todayDateInput())
+        : null
+    } as any);
 
     if (insertError) {
-      setError(insertError.message);
+      setError(mapClientSchemaError(insertError, "Erro ao cadastrar cliente: "));
       return;
     }
 
     setFullName("");
     setPhone("");
+    setEmail("");
     setNotes("");
+    setBirthday("");
+    setPreferredContactChannel("whatsapp");
+    setLocationSharingEnabled(false);
+    setLocationSharingAuthorizedAt("");
     setStatus("Cliente cadastrado.");
     load();
   }
@@ -77,7 +152,12 @@ export default function ClientsPage() {
     setEditingClientId(client.id);
     setEditFullName(client.full_name);
     setEditPhone(formatPhone(client.phone ?? ""));
+    setEditEmail(client.email ?? "");
     setEditNotes(client.notes ?? "");
+    setEditBirthday(client.birthday?.slice(0, 10) ?? "");
+    setEditPreferredContactChannel(client.preferred_contact_channel ?? "whatsapp");
+    setEditLocationSharingEnabled(client.location_sharing_enabled);
+    setEditLocationSharingAuthorizedAt(client.location_sharing_authorized_at?.slice(0, 10) ?? "");
     setError(null);
     setStatus(null);
   }
@@ -86,7 +166,12 @@ export default function ClientsPage() {
     setEditingClientId(null);
     setEditFullName("");
     setEditPhone("");
+    setEditEmail("");
     setEditNotes("");
+    setEditBirthday("");
+    setEditPreferredContactChannel("whatsapp");
+    setEditLocationSharingEnabled(false);
+    setEditLocationSharingAuthorizedAt("");
   }
 
   async function saveEditing(clientId: string) {
@@ -99,12 +184,19 @@ export default function ClientsPage() {
       .update({
         full_name: editFullName.trim(),
         phone: normalizePhone(editPhone) || null,
-        notes: editNotes.trim() || null
-      })
+        email: editEmail.trim() || null,
+        notes: editNotes.trim() || null,
+        birthday: editBirthday || null,
+        preferred_contact_channel: editPreferredContactChannel,
+        location_sharing_enabled: editLocationSharingEnabled,
+        location_sharing_authorized_at: editLocationSharingEnabled
+          ? toAuthorizedAtIso(editLocationSharingAuthorizedAt || todayDateInput())
+          : null
+      } as any)
       .eq("id", clientId);
 
     if (updateError) {
-      setError(updateError.message);
+      setError(mapClientSchemaError(updateError, "Erro ao atualizar cliente: "));
       return;
     }
 
@@ -134,9 +226,66 @@ export default function ClientsPage() {
           </label>
 
           <label className="col">
+            E-mail
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="cliente@exemplo.com"
+            />
+          </label>
+
+          <label className="col">
+            Canal de contato preferido
+            <select
+              value={preferredContactChannel}
+              onChange={(e) => setPreferredContactChannel(e.target.value)}
+            >
+              <option value="whatsapp">WhatsApp</option>
+              <option value="phone">Ligação</option>
+              <option value="email">E-mail</option>
+            </select>
+          </label>
+
+          <label className="col">
             Observações
             <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} />
           </label>
+
+          <label className="col">
+            Aniversário
+            <input
+              type="date"
+              value={birthday}
+              onChange={(e) => setBirthday(e.target.value)}
+            />
+          </label>
+
+          <label className="row">
+            <input
+              type="checkbox"
+              checked={locationSharingEnabled}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setLocationSharingEnabled(checked);
+                setLocationSharingAuthorizedAt((current) =>
+                  checked ? current || todayDateInput() : ""
+                );
+              }}
+            />
+            Partilha de localização autorizada
+          </label>
+
+          {locationSharingEnabled ? (
+            <label className="col">
+              Data da autorização
+              <input
+                type="date"
+                value={locationSharingAuthorizedAt}
+                onChange={(e) => setLocationSharingAuthorizedAt(e.target.value)}
+              />
+            </label>
+          ) : null}
 
           <button type="submit">Cadastrar cliente</button>
         </form>
@@ -152,6 +301,11 @@ export default function ClientsPage() {
               <tr>
                 <th>Nome</th>
                 <th>Telefone</th>
+                <th>E-mail</th>
+                <th>Aniversário</th>
+                <th>Contato preferido</th>
+                <th>Localização</th>
+                <th>Autorizado em</th>
                 <th>Notas</th>
                 <th>Ações</th>
               </tr>
@@ -163,7 +317,11 @@ export default function ClientsPage() {
                   <tr key={client.id}>
                     <td>
                       {isEditing ? (
-                        <input value={editFullName} onChange={(e) => setEditFullName(e.target.value)} />
+                        <input
+                          value={editFullName}
+                          onChange={(e) => setEditFullName(e.target.value)}
+                          title="Nome do cliente"
+                        />
                       ) : (
                         client.full_name
                       )}
@@ -175,6 +333,7 @@ export default function ClientsPage() {
                           onChange={(e) => setEditPhone(formatPhone(e.target.value))}
                           inputMode="tel"
                           placeholder="(11) 99999-9999"
+                          title="Telefone do cliente"
                         />
                       ) : (
                         formatPhone(client.phone ?? "") || "-"
@@ -182,7 +341,89 @@ export default function ClientsPage() {
                     </td>
                     <td>
                       {isEditing ? (
-                        <input value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+                        <input
+                          type="email"
+                          value={editEmail}
+                          onChange={(e) => setEditEmail(e.target.value)}
+                          title="E-mail do cliente"
+                        />
+                      ) : (
+                        client.email ?? "-"
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <input
+                          type="date"
+                          value={editBirthday}
+                          onChange={(e) => setEditBirthday(e.target.value)}
+                          title="Aniversário do cliente"
+                        />
+                      ) : (
+                        formatBirthday(client.birthday)
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <select
+                          value={editPreferredContactChannel}
+                          onChange={(e) => setEditPreferredContactChannel(e.target.value)}
+                          title="Canal de contato preferido"
+                        >
+                          <option value="whatsapp">WhatsApp</option>
+                          <option value="phone">Ligação</option>
+                          <option value="email">E-mail</option>
+                        </select>
+                      ) : client.preferred_contact_channel === "email" ? (
+                        "E-mail"
+                      ) : client.preferred_contact_channel === "phone" ? (
+                        "Ligação"
+                      ) : (
+                        "WhatsApp"
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <label className="row">
+                          <input
+                            type="checkbox"
+                            checked={editLocationSharingEnabled}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              setEditLocationSharingEnabled(checked);
+                              setEditLocationSharingAuthorizedAt((current) =>
+                                checked ? current || todayDateInput() : ""
+                              );
+                            }}
+                          />
+                          Autorizada
+                        </label>
+                      ) : client.location_sharing_enabled ? (
+                        "Autorizada"
+                      ) : (
+                        "Não autorizada"
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <input
+                          type="date"
+                          value={editLocationSharingAuthorizedAt}
+                          onChange={(e) => setEditLocationSharingAuthorizedAt(e.target.value)}
+                          disabled={!editLocationSharingEnabled}
+                          title="Data da autorização da localização"
+                        />
+                      ) : (
+                        formatAuthorizedAt(client.location_sharing_authorized_at)
+                      )}
+                    </td>
+                    <td>
+                      {isEditing ? (
+                        <input
+                          value={editNotes}
+                          onChange={(e) => setEditNotes(e.target.value)}
+                          title="Observações do cliente"
+                        />
                       ) : (
                         client.notes ?? "-"
                       )}
@@ -210,7 +451,7 @@ export default function ClientsPage() {
               })}
               {clients.length === 0 ? (
                 <tr>
-                  <td colSpan={4}>Nenhum cliente cadastrado.</td>
+                  <td colSpan={9}>Nenhum cliente cadastrado.</td>
                 </tr>
               ) : null}
             </tbody>

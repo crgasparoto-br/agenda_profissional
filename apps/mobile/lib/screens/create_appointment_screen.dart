@@ -249,26 +249,67 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
                     initialValue: _serviceId,
+                    isExpanded: true,
                     decoration: const InputDecoration(labelText: 'Servico'),
+                    selectedItemBuilder: (context) => _services
+                        .map(
+                          (item) => Text(
+                            '${item.name} (${item.durationMin}m + ${item.intervalMin}m intervalo)',
+                            overflow: TextOverflow.ellipsis,
+                            maxLines: 1,
+                          ),
+                        )
+                        .toList(),
                     items: _services.map((item) {
                       final label = '${item.name} (${item.durationMin}m + ${item.intervalMin}m intervalo)';
-                      return DropdownMenuItem(value: item.id, child: Text(label));
+                      return DropdownMenuItem(
+                        value: item.id,
+                        child: Text(
+                          label,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      );
                     }).toList(),
                     onChanged: (value) => setState(() => _serviceId = value),
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String?>(
                     initialValue: _clientId,
+                    isExpanded: true,
                     decoration:
                         const InputDecoration(labelText: 'Cliente (opcional)'),
+                    selectedItemBuilder: (context) => [
+                      const Text(
+                        'Novo cliente (via WhatsApp)',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                      ),
+                      ..._clients.map(
+                        (item) => Text(
+                          item.label,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                      ),
+                    ],
                     items: [
                       const DropdownMenuItem<String?>(
                         value: null,
-                        child: Text('Novo cliente (via WhatsApp)'),
+                        child: Text(
+                          'Novo cliente (via WhatsApp)',
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
                       ),
                       ..._clients.map(
                         (item) => DropdownMenuItem<String?>(
-                            value: item.id, child: Text(item.label)),
+                            value: item.id,
+                            child: Text(
+                              item.label,
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            )),
                       ),
                     ],
                     onChanged: (value) => setState(() => _clientId = value),
@@ -300,25 +341,32 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       initialValue: _professionalId,
+                      isExpanded: true,
                       decoration:
                           const InputDecoration(labelText: 'Profissional'),
+                      selectedItemBuilder: (context) => _professionals
+                          .map(
+                            (item) => Text(
+                              item.label,
+                              overflow: TextOverflow.ellipsis,
+                              maxLines: 1,
+                            ),
+                          )
+                          .toList(),
                       items: _professionals
                           .map((item) => DropdownMenuItem(
-                              value: item.id, child: Text(item.label)))
+                              value: item.id,
+                              child: Text(
+                                item.label,
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              )))
                           .toList(),
                       onChanged: (value) =>
                           setState(() => _professionalId = value),
                     ),
                   ],
                   const SizedBox(height: 12),
-                  Builder(builder: (_) {
-                    final timezone = _effectiveTimezone();
-                    return Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text('Fuso: $timezone', style: Theme.of(context).textTheme.bodySmall),
-                    );
-                  }),
-                  const SizedBox(height: 8),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     title: const Text('Inicio'),
@@ -330,7 +378,7 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
                   ),
                   ListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Fim de bloqueio'),
+                    title: const Text('Fim'),
                     subtitle: Text(_formatDateTime(_resolvedEndDateTime(), _effectiveTimezone())),
                   ),
                   const SizedBox(height: 12),
@@ -348,8 +396,10 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
                         border: Border.all(
                             color: AppColors.secondary.withValues(alpha: 0.35)),
                       ),
-                      child: Text(_status!,
-                          style: const TextStyle(color: Color(0xFF0F4D50))),
+                      child: Text(
+                        _status!,
+                        style: const TextStyle(color: AppColors.secondary),
+                      ),
                     ),
                   ],
                   if (_error != null) ...[
@@ -360,10 +410,13 @@ class _CreateAppointmentScreenState extends State<CreateAppointmentScreen> {
                         color: AppColors.danger.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(AppTheme.radiusMd),
                         border: Border.all(
-                            color: AppColors.danger.withValues(alpha: 0.35)),
+                          color: AppColors.danger.withValues(alpha: 0.35),
+                        ),
                       ),
-                      child: Text(_error!,
-                          style: const TextStyle(color: Color(0xFF702621))),
+                      child: Text(
+                        _error!,
+                        style: const TextStyle(color: Color(0xFF702621)),
+                      ),
                     ),
                   ],
                 ],

@@ -235,7 +235,7 @@ class _PunctualityAuditScreenState extends State<PunctualityAuditScreen> {
       final appointment = await client
           .from('appointments')
           .select(
-              'id, starts_at, status, punctuality_status, clients(full_name), professionals(name), services(name)')
+            'id, tenant_id, client_id, starts_at, status, punctuality_status, clients(full_name), professionals(name), services(name)')
           .eq('id', appointmentId)
           .maybeSingle();
 
@@ -323,6 +323,15 @@ class _PunctualityAuditScreenState extends State<PunctualityAuditScreen> {
         'source_channel': 'mobile_app',
         'updated_at': nowIso,
       }).eq('id', consentId);
+
+      final tenantId = _appointment?['tenant_id'] as String?;
+      final clientId = _appointment?['client_id'] as String?;
+      if (tenantId != null && clientId != null) {
+        await Supabase.instance.client.from('clients').update({
+          'location_sharing_enabled': false,
+          'location_sharing_authorized_at': null,
+        }).eq('tenant_id', tenantId).eq('id', clientId);
+      }
 
       await _investigate();
     } catch (error) {

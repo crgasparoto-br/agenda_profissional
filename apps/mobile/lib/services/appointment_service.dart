@@ -387,9 +387,36 @@ class AppointmentService {
           .from('client_location_consents')
           .update(payload)
           .eq('id', existing['id'] as String);
+      await _syncClientLocationSharingSummary(
+        tenantId: appointment.tenantId,
+        clientId: appointment.clientId!,
+        consentStatus: status,
+        grantedAtIso: payload['granted_at'] as String?,
+      );
       return;
     }
 
     await _client.from('client_location_consents').insert(payload);
+    await _syncClientLocationSharingSummary(
+      tenantId: appointment.tenantId,
+      clientId: appointment.clientId!,
+      consentStatus: status,
+      grantedAtIso: payload['granted_at'] as String?,
+    );
+  }
+
+  Future<void> _syncClientLocationSharingSummary({
+    required String tenantId,
+    required String clientId,
+    required String consentStatus,
+    required String? grantedAtIso,
+  }) async {
+    final normalizedStatus = consentStatus.trim().toLowerCase();
+    final enabled = normalizedStatus == 'granted';
+
+    await _client.from('clients').update({
+      'location_sharing_enabled': enabled,
+      'location_sharing_authorized_at': enabled ? grantedAtIso : null,
+    }).eq('tenant_id', tenantId).eq('id', clientId);
   }
 }

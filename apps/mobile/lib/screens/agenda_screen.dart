@@ -433,6 +433,20 @@ class _AgendaScreenState extends State<AgendaScreen> {
     return '$yyyy-$mm-$dd';
   }
 
+  String _appointmentDateKey(AppointmentItem item) {
+    final timezone = _timezoneByProfessional[item.professionalId] ??
+        'America/Sao_Paulo';
+    return _dateKeyInTimezone(item.startsAt, timezone);
+  }
+
+  List<String> _selectedDayAppointmentIds(List<AppointmentItem> items) {
+    final selectedKey = _dateKey(_selectedDate);
+    return items
+        .where((item) => _appointmentDateKey(item) == selectedKey)
+        .map((item) => item.id)
+        .toList();
+  }
+
   int _weekdayIndex0to6(DateTime date) {
     return date.weekday % 7;
   }
@@ -535,9 +549,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
     final grouped = <String, List<AppointmentItem>>{};
 
     for (final item in _filteredAppointments) {
-      final timezone =
-          _timezoneByProfessional[item.professionalId] ?? 'America/Sao_Paulo';
-      final key = _dateKeyInTimezone(item.startsAt, timezone);
+      final key = _appointmentDateKey(item);
       grouped.putIfAbsent(key, () => <AppointmentItem>[]).add(item);
     }
 
@@ -546,6 +558,62 @@ class _AgendaScreenState extends State<AgendaScreen> {
     }
 
     return grouped;
+  }
+
+  Future<List<PunctualityAlertItem>> _loadSelectedDayAlerts(
+    List<AppointmentItem> items,
+  ) async {
+    final appointmentIds = _selectedDayAppointmentIds(items);
+    if (appointmentIds.isEmpty) return const [];
+
+    final alerts = await _appointmentService.getPunctualityAlerts(
+      appointmentIds: appointmentIds,
+      limit: 15,
+    );
+    final queuedAlertIds =
+        alerts.where((item) => item.isQueued).map((item) => item.id).toList();
+    if (queuedAlertIds.isNotEmpty) {
+      await _appointmentService.markPunctualityAlertsDelivered(queuedAlertIds);
+    }
+
+    return alerts
+        .map(
+          (item) => item.isQueued
+              ? PunctualityAlertItem(
+                  id: item.id,
+                  appointmentId: item.appointmentId,
+                  type: item.type,
+                  status: 'sent',
+                  createdAt: item.createdAt,
+                  payload: item.payload,
+                )
+              : item,
+        )
+        .toList();
+  }
+
+  Future<void> _refreshSelectedDayAlerts({
+    List<AppointmentItem>? items,
+  }) async {
+    final sourceItems = items ?? _appointments;
+
+    if (mounted) {
+      setState(() {
+        _alertsLoading = true;
+        _error = null;
+      });
+    }
+
+    try {
+      final alerts = await _loadSelectedDayAlerts(sourceItems);
+      if (!mounted) return;
+      setState(() => _punctualityAlerts = alerts);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = 'Erro ao carregar alertas de pontualidade');
+    } finally {
+      if (mounted) setState(() => _alertsLoading = false);
+    }
   }
 
   Future<void> _loadAppointments({bool partial = false}) async {
@@ -568,30 +636,6 @@ class _AgendaScreenState extends State<AgendaScreen> {
       final appointmentIds = items.map((item) => item.id).toList();
       final consentByAppointment =
           await _appointmentService.getLocationConsents(appointmentIds);
-      final alerts = await _appointmentService.getPunctualityAlerts(
-        appointmentIds: appointmentIds,
-        limit: 8,
-      );
-      final queuedAlertIds =
-          alerts.where((item) => item.isQueued).map((item) => item.id).toList();
-      if (queuedAlertIds.isNotEmpty) {
-        await _appointmentService
-            .markPunctualityAlertsDelivered(queuedAlertIds);
-      }
-      final normalizedAlerts = alerts
-          .map(
-            (item) => item.isQueued
-                ? PunctualityAlertItem(
-                    id: item.id,
-                    appointmentId: item.appointmentId,
-                    type: item.type,
-                    status: 'sent',
-                    createdAt: item.createdAt,
-                    payload: item.payload,
-                  )
-                : item,
-          )
-          .toList();
 
       final activeProfessionalIds = _selectedProfessionalId != null
           ? <String>[_selectedProfessionalId!]
@@ -605,10 +649,12 @@ class _AgendaScreenState extends State<AgendaScreen> {
         for (final entry in scheduleByProfessional.entries)
           entry.key: entry.value.timezone,
       };
+      _timezoneByProfessional = timezoneByProfessional;
+      final selectedDayAlerts = await _loadSelectedDayAlerts(items);
 
       setState(() {
         _appointments = items;
-        _punctualityAlerts = normalizedAlerts;
+        _punctualityAlerts = selectedDayAlerts;
         _locationConsents = consentByAppointment;
         _timezoneByProfessional = timezoneByProfessional;
         _scheduleByProfessional = scheduleByProfessional;
@@ -1630,6 +1676,7 @@ class _AgendaScreenState extends State<AgendaScreen> {
     if (normalizedDay.month == _selectedDate.month &&
         normalizedDay.year == _selectedDate.year) {
       setState(() => _selectedDate = normalizedDay);
+      await _refreshSelectedDayAlerts();
       return;
     }
 
